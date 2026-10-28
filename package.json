@@ -1,0 +1,9 @@
+{
+  "name": "500px-static-clone",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "lint": "node --check app.js && node --check server.mjs && node --check tools/capture.mjs && node --check tools/prepare.mjs && node --check tools/inspect.mjs && node --check tools/browser-check.mjs && node --check tools/capture-leaderboard.mjs && node --check tools/leaderboard-check.mjs && node --check tools/quests-check.mjs && node --check tools/finish-licensing.mjs && node --check tools/licensing-check.mjs"
+  }
+}

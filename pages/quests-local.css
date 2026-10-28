@@ -1,0 +1,68 @@
+/* Static layout replaces the captured virtual list; the original page owns typography. */
+.quest-app-banner { display: none; }
+body[data-page="quests"] .local-quest-grid { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; }
+body[data-page="quests"] .local-quest-grid > [hidden] { display: none !important; }
+body[data-page="quests"] [data-quests-section-title] { margin: 0; }
+.quest-filter, .quest-sort-trigger, .local-quest-filters button { border: 0; color: inherit; font: inherit; }
+.quest-filter { background: transparent; border-radius: 10px; padding: 5px 16px; flex-shrink: 0; transition: background-color .15s; }
+.quest-filter[aria-pressed="true"] { background: var(--mui-palette-brandGrey-main); }
+.quest-filter:hover { background: var(--mui-palette-card2-main); }
+.quest-sort-trigger { background: transparent; padding: 0; }
+.local-quest-grid [data-quest-card] a { border-radius: inherit; }
+.local-quest-grid [data-quest-card]:focus-within .card-media-scale { transform: scale(1.05); }
+[data-quest-carousel] .css-qzyr6w { position: relative; }
+[data-quest-slide] { position: absolute; inset: 0; width: 100%; opacity: 0; pointer-events: none; transition: opacity .6s; }
+[data-quest-slide][aria-hidden="false"] { opacity: 1; pointer-events: auto; }
+[data-quest-slide] > a { display: block; }
+[data-quest-dot] { position: relative; }
+[data-quest-dot]::after { content: ''; position: absolute; inset: -8px; }
+[data-quest-carousel]:focus-within .css-27tdp6 { display: flex; }
+.local-quest-empty { margin: 0; padding: 80px 16px; }
+.local-quest-filters { padding: 0; border: 0; background: transparent; width: 960px; max-width: calc(100vw - 48px); max-height: calc(100dvh - 48px); overflow: visible; }
+.local-quest-filters::backdrop { background: #0006; }
+.local-quest-filters .css-10ttxdp { width: 100%; max-width: none; margin: 0; max-height: calc(100dvh - 48px); }
+.local-quest-filters button { flex-shrink: 0; }
+.local-quest-filters button[aria-label="close"] { padding: 0; background: transparent; }
+.local-dialog.local-quest-filters label { display: flex; margin: 0; }
+.local-quest-filters input:checked + div { background: #f9f9f9; border-color: #f9f9f9; }
+.local-quest-filters input:checked + div::after { content: ''; display: block; width: 7px; height: 4px; border: solid #131313; border-width: 0 0 2px 2px; transform: translate(3px, 3px) rotate(-45deg); }
+.local-quest-filters label:has(input:focus-visible) { outline: 2px solid #b4eef0; outline-offset: 4px; }
+.local-quest-filters [data-quest-sort] { background: transparent; text-align: left; }
+.local-quest-filters [data-quest-sort][aria-pressed="true"] { background: var(--mui-palette-card2-main); }
+.local-quest-filters [data-quest-sort] svg { display: none; }
+.local-quest-filters [data-quest-sort][aria-pressed="true"]::after { content: '✓'; }
+.local-quest-filters [data-quest-clear] { background: transparent; }
+@media (max-width: 1279px) {
+  body[data-page="quests"] .local-quest-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 959px) {
+  body[data-page="quests"] .local-quest-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  body[data-page="quests"] [data-quests-filter-bar] { grid-template-columns: 1fr auto; }
+  body[data-page="quests"] [data-quests-filter-bar] > :first-child { grid-column: 1; }
+  body[data-page="quests"] [data-quests-filter-bar] > :last-child { grid-column: 2; }
+}
+@media (max-width: 767px) {
+  body[data-page="quests"] .local-quest-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .quest-app-banner { display: flex; height: 76px; align-items: center; gap: 16px; padding: 12px 16px; background: #131313; border-bottom: 1px solid #262626; }
+  .quest-app-banner > button { border: 0; background: transparent; color: #999; padding: 0; }
+  .quest-app-banner > div:first-of-type { display: flex; align-items: center; width: 48px; }
+  .quest-app-banner > div:first-of-type svg { width: 40px; }
+  .quest-app-banner > div:last-of-type { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 14px; font-weight: 500; }
+  .quest-app-banner > div:last-of-type > :last-child { font-size: 12px; font-weight: 400; color: #aaa; }
+  .quest-app-banner > div:first-of-type svg { fill: #f9f9f9; }
+  .quest-app-banner a { color: #00b7d1; font-size: 14px; text-decoration: none; }
+  body[data-page="quests"] [data-quests-sticky-header] { top: 132px; }
+  body[data-page="quests"] [data-quests-filter-bar] { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
+  body[data-page="quests"] [data-quests-filter-bar] > :first-child { flex-wrap: nowrap !important; gap: 0; justify-content: center; }
+  body[data-page="quests"] [data-quests-filter-bar] > :last-child { align-self: flex-end; }
+  .quest-filter { padding: 5px 12px; }
+  .local-quest-filters { max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); }
+  .local-quest-filters .css-10ttxdp { padding: 24px; gap: 24px; max-height: calc(100dvh - 32px); }
+  .local-quest-filters .css-qy4d86 { flex-direction: column; gap: 24px; }
+  .local-quest-filters .css-w9ogmf { flex: none; gap: 24px; }
+  .local-quest-filters [data-quest-sort] { width: 100%; }
+  .local-quest-filters .css-qy4d86 > :last-child { border: 0; padding: 0; flex: none; width: 100%; }
+}
+@media (max-width: 359px) {
+  .quest-filter { padding-inline: 7px; }
+}
