@@ -1537,102 +1537,182 @@
     {
       "href": "/quest/1000005269-after-hours",
       "title": "After Hours",
-      "src": "/assets/0656-0.jpg"
+      "src": "/assets/0656-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-08-26T19:00:00.000+00:00",
+      "end": "2026-10-09T05:00:01.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005272-model-released",
       "title": "Model Released",
-      "src": "/assets/0657-0.jpg"
+      "src": "/assets/0657-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-08-27T11:00:01.000+00:00",
+      "end": "2026-10-05T05:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005273-monthly-shot-list-september-2026",
       "title": "Monthly Shot List | September 2026",
-      "src": "/assets/0658-0.jpg"
+      "src": "/assets/0658-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-08-27T12:00:00.000+00:00",
+      "end": "2026-10-01T04:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005270-local-table",
       "title": "Local Table",
-      "src": "/assets/0659-0.jpg"
+      "src": "/assets/0659-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-08-27T02:00:00.000+00:00",
+      "end": "2026-09-30T05:00:01.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005271-on-the-clock",
       "title": "On the Clock",
-      "src": "/assets/0660-0.jpg"
+      "src": "/assets/0660-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-08-27T08:00:01.000+00:00",
+      "end": "2026-09-28T05:00:01.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005175-monthly-shot-list-august-2026",
       "title": "Monthly Shot List | August 2026",
-      "src": "/assets/0661-0.jpg"
+      "src": "/assets/0661-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-08-01T04:00:00.000+00:00",
+      "end": "2026-09-01T04:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005126--destinations-in-focus-south-korea---islands-southern-coastal-havens",
       "title": " Destinations in Focus: South Korea - Islands & Southern Coastal Havens",
-      "src": "/assets/0662-0.jpg"
+      "src": "/assets/0662-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-07-15T15:30:00.000+00:00",
+      "end": "2026-08-24T03:59:59.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005125-destinations-in-focus-thailand---highlands-islands-isan",
       "title": "Destinations in Focus: Thailand - Highlands, Islands & Isan",
-      "src": "/assets/0663-0.jpg"
+      "src": "/assets/0663-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-07-15T17:30:00.000+00:00",
+      "end": "2026-08-24T03:59:59.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000005124-destinations-in-focus-japan-kansai-chubu-region",
       "title": "Destinations in Focus: Japan - Kansai & Chubu Regions",
-      "src": "/assets/0664-0.jpg"
+      "src": "/assets/0664-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-07-15T16:30:00.000+00:00",
+      "end": "2026-08-24T03:59:59.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004545-monthly-shot-list-march-2026",
       "title": "Monthly Shot List | March 2026",
-      "src": "/assets/0665-0.jpg"
+      "src": "/assets/0665-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-02-27T16:00:00.000+00:00",
+      "end": "2026-04-01T04:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004488-local-flavor",
       "title": "Local Flavor",
-      "src": "/assets/0666-0.jpg"
+      "src": "/assets/0666-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-02-26T11:00:01.000+00:00",
+      "end": "2026-04-12T04:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004487-shot-vertical",
       "title": "Shot Vertical",
-      "src": "/assets/0667-0.jpg"
+      "src": "/assets/0667-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-02-24T11:00:01.000+00:00",
+      "end": "2026-04-05T04:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004485-people-lifestyle",
       "title": "People & Lifestyle",
-      "src": "/assets/0668-0.jpg"
+      "src": "/assets/0668-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-02-20T19:00:01.000+00:00",
+      "end": "2026-03-29T04:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004345-monthly-shot-list-february-2026",
       "title": "Monthly Shot List | February 2026",
-      "src": "/assets/0669-0.jpg"
+      "src": "/assets/0669-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-01-29T11:00:00.000+00:00",
+      "end": "2026-03-01T05:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004344-celebrating-love",
       "title": "Celebrating Love",
-      "src": "/assets/0670-0.jpg"
+      "src": "/assets/0670-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-01-29T11:00:01.000+00:00",
+      "end": "2026-03-04T05:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004184-monthly-shot-list-january-2026",
       "title": "Monthly Shot List | January 2026",
-      "src": "/assets/0671-0.jpg"
+      "src": "/assets/0671-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-01-01T11:00:00.000+00:00",
+      "end": "2026-02-01T05:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004183-winter-activities",
       "title": "Winter Activities",
-      "src": "/assets/0672-0.jpg"
+      "src": "/assets/0672-0.jpg",
+      "type": "LICENSING",
+      "start": "2026-01-01T11:00:01.000+00:00",
+      "end": "2026-02-09T05:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000004182-landscapes",
       "title": "Landscapes",
-      "src": "/assets/0673-0.jpg"
+      "src": "/assets/0673-0.jpg",
+      "type": "LICENSING",
+      "start": "2025-12-31T10:00:01.000+00:00",
+      "end": "2026-02-06T03:59:59.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000003891-monthly-shot-list-december-2025",
       "title": "Monthly Shot List | December 2025",
-      "src": "/assets/0674-0.jpg"
+      "src": "/assets/0674-0.jpg",
+      "type": "LICENSING",
+      "start": "2025-11-27T11:00:00.000+00:00",
+      "end": "2026-01-01T05:00:00.000+00:00",
+      "status": "COMPLETED"
     },
     {
       "href": "/quest/1000003890-january-reset",
       "title": "January Reset",
-      "src": "/assets/0675-0.jpg"
+      "src": "/assets/0675-0.jpg",
+      "type": "LICENSING",
+      "start": "2025-12-29T20:47:41.000+00:00",
+      "end": "2026-01-27T04:59:59.000+00:00",
+      "status": "COMPLETED"
     }
   ]
 }

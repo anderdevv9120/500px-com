@@ -83,7 +83,7 @@ try {
   await page.click('[data-grant-target="showus"]');
   await page.waitForFunction(()=>document.querySelector('[data-grant-target="showus"]').getAttribute('aria-current')==='location');
   await screenshot('grants-collection');
-  assert.equal(await page.$$eval('a[href^="https://500px.com/gallery/"]',links=>links.length),5);
+  assert.equal(await page.$$eval('a[href^="/gallery/"]',links=>links.filter(a=>!a.target).length),5);
   await page.evaluate(()=>localStorage.setItem('500px-local-demo',JSON.stringify({user:{name:'Alex Morgan'}})));
   await visit('/licensing');await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Get started').click());
   await page.waitForSelector('dialog[open] input[type="file"]');await page.keyboard.press('Escape');

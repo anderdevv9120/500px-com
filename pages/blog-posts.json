@@ -1,0 +1,427 @@
+{
+  "captured": "2026-10-28",
+  "source": "https://iso.500px.com/",
+  "navigation": [
+    {
+      "label": "500px Resources",
+      "href": "/blog/category/500px-blog",
+      "children": [
+        {
+          "label": "Getting Started in Photography",
+          "href": "/blog/category/getting-started-in-photography"
+        },
+        {
+          "label": "General Photography",
+          "href": "/blog/category/general-photography"
+        },
+        {
+          "label": "Photography Business",
+          "href": "/blog/category/photography-business-2"
+        },
+        {
+          "label": "Experimenting",
+          "href": "/blog/category/experimenting"
+        },
+        {
+          "label": "Selling Your Photography",
+          "href": "/blog/category/selling-your-photography"
+        },
+        {
+          "label": "500px News",
+          "href": "/blog/category/500px-news"
+        }
+      ]
+    },
+    {
+      "label": "Education",
+      "href": "/blog/category/craft",
+      "children": [
+        {
+          "label": "Education",
+          "href": "/blog/category/craft"
+        },
+        {
+          "label": "Gear Guides",
+          "href": "/blog/category/craft/gear-guides"
+        },
+        {
+          "label": "Gear Reviews",
+          "href": "/blog/category/craft/gear-reviews"
+        },
+        {
+          "label": "Portfolio Reviews",
+          "href": "/blog/category/craft/portfolio-reviews-craft"
+        },
+        {
+          "label": "Tips, Tricks, and DIY",
+          "href": "/blog/category/craft/tips-tricks-diy"
+        },
+        {
+          "label": "Tutorials",
+          "href": "/blog/category/craft/tutorials"
+        }
+      ]
+    },
+    {
+      "label": "Design & Creativity",
+      "href": "/blog/category/design-creativity",
+      "children": [
+        {
+          "label": "Design & Creativity",
+          "href": "/blog/category/design-creativity"
+        },
+        {
+          "label": "Interviews",
+          "href": "/blog/category/design-creativity/interviews"
+        },
+        {
+          "label": "Trends",
+          "href": "/blog/category/design-creativity/trends"
+        },
+        {
+          "label": "Tips & Ideas",
+          "href": "/blog/category/design-creativity/tips-ideas"
+        }
+      ]
+    },
+    {
+      "label": "Photo Licensing 101",
+      "href": "/blog/category/photo-licensing-101",
+      "children": [
+        {
+          "label": "Photo Licensing 101",
+          "href": "/blog/category/photo-licensing-101"
+        },
+        {
+          "label": "Photo Licensing Tips",
+          "href": "/blog/category/photo-licensing-101/photo-licensing-tips"
+        }
+      ]
+    }
+  ],
+  "posts": [
+    {
+      "title": "Into the Mist: Creating Atmosphere with Fog Photography",
+      "slug": "into-the-mist-creating-atmosphere-with-fog-photography",
+      "source": "https://iso.500px.com/into-the-mist-creating-atmosphere-with-fog-photography/",
+      "image": "/assets/blog-002-1025916842-1500x1000.jpg",
+      "hero": "/assets/blog-001-1025916842-3000x2000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "3 weeks ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "craft",
+        "experimenting",
+        "featured",
+        "general-photography",
+        "headline",
+        "homefeed",
+        "creative",
+        "tips-ideas",
+        "trends"
+      ],
+      "excerpt": "Mist softens distant details and gives familiar landscapes a different character. Explore simple compositions, layers of light, and the quiet atmosphere of a foggy morning."
+    },
+    {
+      "title": "Eline Deckers: Black and White Street Photography in Antwerp | 500px Photographer Spotlight",
+      "slug": "eline-deckers-black-and-white-street-photography-in-antwerp-500px-photographer-spotlight",
+      "source": "https://iso.500px.com/eline-deckers-black-and-white-street-photography-in-antwerp-500px-photographer-spotlight/",
+      "image": "/assets/blog-003-1122132693-1500x1000.jpg",
+      "hero": "/assets/blog-003-1122132693-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "1 month ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "diverse-voices",
+        "featured",
+        "guest-editor-2",
+        "homefeed",
+        "interviews",
+        "spotlights"
+      ],
+      "excerpt": "Antwerp photographer Eline Deckers uses deep shadows and strong sunlight to give everyday street scenes a striking graphic quality. Her monochrome work brings people and architecture into conversation."
+    },
+    {
+      "title": "Andrew Shenouda: Featured Photographer Spotlight",
+      "slug": "andrew-shenouda-photographer-spotlight",
+      "source": "https://iso.500px.com/andrew-shenouda-photographer-spotlight/",
+      "image": "/assets/blog-004-photo-heydar-aliyev-center-during-the-dusk-1124920225-1500x1000.jpg",
+      "hero": "/assets/blog-004-photo-heydar-aliyev-center-during-the-dusk-1124920225-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "2 months ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "diverse-voices",
+        "experimenting",
+        "featured",
+        "headline",
+        "homefeed",
+        "creative",
+        "interviews",
+        "spotlights",
+        "tips-ideas"
+      ],
+      "excerpt": "Andrew Shenouda approaches buildings with an architect’s eye. His photographs balance structure, space, and changing light, showing how the built environment can become a compelling visual subject."
+    },
+    {
+      "title": "Capturing the Shift from Summer to Fall Through Light",
+      "slug": "capturing-the-shift-from-summer-to-fall-through-light",
+      "source": "https://iso.500px.com/capturing-the-shift-from-summer-to-fall-through-light/",
+      "image": "/assets/blog-018-photo-tunnel-view-280400893.jpg",
+      "hero": "/assets/blog-018-photo-tunnel-view-280400893.jpg",
+      "author": "500px Team",
+      "category": "500px Blog",
+      "date": "2 months ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "craft",
+        "featured",
+        "general-photography",
+        "getting-started-in-photography",
+        "headline",
+        "homefeed",
+        "creative",
+        "tips-ideas",
+        "tips-tricks-diy",
+        "trends"
+      ],
+      "excerpt": "Watch the season change through softer afternoon light, longer shadows, and the first warm colors in the trees. A familiar landscape offers new compositions as summer gives way to autumn."
+    },
+    {
+      "title": "Ricardo Lostanaw: Featured Photographer Spotlight",
+      "slug": "ricardo-lostanaw-featured-photographer-spotlight",
+      "source": "https://iso.500px.com/ricardo-lostanaw-featured-photographer-spotlight/",
+      "image": "/assets/blog-011-photo-cecy-pau-1066106185.jpeg",
+      "hero": "/assets/blog-011-photo-cecy-pau-1066106185.jpeg",
+      "author": "500px Team",
+      "category": "500px Blog",
+      "date": "2 months ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "diverse-voices",
+        "featured",
+        "homefeed",
+        "creative",
+        "interviews",
+        "spotlights",
+        "tips-ideas"
+      ],
+      "excerpt": "Ricardo Lostanaw moves between portraiture and personal stories. His work explores the possibilities of direct light, thoughtful staging, and the relationships that give a photograph its character."
+    },
+    {
+      "title": "Unveiling 500px Icons: A Decade of Visual Stories and Creative Expression",
+      "slug": "unveiling-500px-icons-a-decade-of-visual-stories-and-creative-expression",
+      "source": "https://iso.500px.com/unveiling-500px-icons-a-decade-of-visual-stories-and-creative-expression/",
+      "image": "/assets/blog-005-Blog-post-hero-3-1500x1000.jpg",
+      "hero": "/assets/blog-005-Blog-post-hero-3-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "3 years ago",
+      "categories": [
+        "500px-blog",
+        "500px-news",
+        "collections",
+        "featured",
+        "homefeed",
+        "creative",
+        "special-features"
+      ],
+      "excerpt": "A collection celebrating memorable photographs and the creative voices of the 500px community. Revisit a decade of images, personal perspectives, and visual storytelling."
+    },
+    {
+      "title": "Announcing the ultimate photography retreat in France with Alex Strohl—Beyond Borders contest",
+      "slug": "announcing-the-ultimate-photography-retreat-in-france-with-alex-strohl-beyond-borders-contest",
+      "source": "https://iso.500px.com/announcing-the-ultimate-photography-retreat-in-france-with-alex-strohl-beyond-borders-contest/",
+      "image": "/assets/blog-006-Blog-post-hero-1-1500x1000.jpg",
+      "hero": "/assets/blog-006-Blog-post-hero-1-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "3 years ago",
+      "categories": [
+        "500px-blog",
+        "500px-news",
+        "contests",
+        "headline",
+        "homefeed",
+        "news-and-reviews"
+      ],
+      "excerpt": "Explore a photography retreat in France with Alex Strohl. The Beyond Borders project celebrates travel, creative exploration, and finding a fresh perspective in unfamiliar surroundings."
+    },
+    {
+      "title": "Shorter Days, Stronger Images: A Guide to Low Light Photography",
+      "slug": "shorter-days-stronger-images-a-guide-to-low-light-photography",
+      "source": "https://iso.500px.com/shorter-days-stronger-images-a-guide-to-low-light-photography/",
+      "image": "/assets/blog-007-0-74-1500x1000.jpg",
+      "hero": "/assets/blog-007-0-74-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "5 days ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity"
+      ],
+      "excerpt": "Shorter days offer more opportunities to photograph after sunset. Look for available light, steady your camera, and build a composition around the details that remain visible."
+    },
+    {
+      "title": "Beyond the Postcard: Fresh Approaches to Fall Foliage Photography",
+      "slug": "beyond-the-postcard-fresh-approaches-to-fall-foliage-photography",
+      "source": "https://iso.500px.com/beyond-the-postcard-fresh-approaches-to-fall-foliage-photography/",
+      "image": "/assets/blog-012-1024530421-1500x1000.jpg",
+      "hero": "/assets/blog-012-1024530421-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "Design & Creativity",
+      "date": "4 weeks ago",
+      "categories": [
+        "design-creativity",
+        "design-inspiration",
+        "craft",
+        "tips-ideas",
+        "trends"
+      ],
+      "excerpt": "Find autumn photographs beyond familiar postcard views. Explore close details, contrasting colors, reflections, and unexpected angles to tell your own story of the season."
+    },
+    {
+      "title": "From Everyday Scenes to Meaningful Stories",
+      "slug": "from-everyday-scenes-to-meaningful-stories",
+      "source": "https://iso.500px.com/from-everyday-scenes-to-meaningful-stories/",
+      "image": "/assets/blog-008-1029727867-1500x1000.jpg",
+      "hero": "/assets/blog-008-1029727867-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "Uncategorized",
+      "date": "1 month ago",
+      "categories": [
+        "uncategorized"
+      ],
+      "excerpt": "An ordinary setting can hold a memorable story. Pay attention to small gestures, the relationships between people, and the way light gives a simple scene its mood."
+    },
+    {
+      "title": "Using Color to Shape Emotion in Photography",
+      "slug": "using-color-to-shape-emotion-in-photography",
+      "source": "https://iso.500px.com/using-color-to-shape-emotion-in-photography/",
+      "image": "/assets/blog-009-1036175701-1500x1000.jpg",
+      "hero": "/assets/blog-009-1036175701-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "1 month ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "craft",
+        "experimenting",
+        "general-photography",
+        "getting-started-in-photography",
+        "homefeed",
+        "creative",
+        "tips-ideas",
+        "tips-tricks-diy"
+      ],
+      "excerpt": "Color can guide attention and change the feeling of a photograph. Explore warm and cool tones, contrasting hues, and a restrained palette to make a more deliberate image."
+    },
+    {
+      "title": "Long Exposure Photography: Create Stunning Time-Stretch Effects",
+      "slug": "long-exposure-photography-create-stunning-time-stretch-effects",
+      "source": "https://iso.500px.com/long-exposure-photography-create-stunning-time-stretch-effects/",
+      "image": "/assets/blog-013-287855065-1500x1000.jpg",
+      "hero": "/assets/blog-013-287855065-1500x1000.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "5 months ago",
+      "categories": [
+        "500px-blog",
+        "design-creativity",
+        "design-inspiration",
+        "craft",
+        "experimenting",
+        "creative",
+        "tips-ideas"
+      ],
+      "excerpt": "A long exposure can stretch a moment into a pattern of movement. Experiment with a steady camera, moving subjects, and different shutter speeds to find an expressive balance."
+    },
+    {
+      "title": "Nature Movement Photography: Capturing Wind, Water & Wings",
+      "slug": "nature-movement-photography",
+      "source": "https://iso.500px.com/nature-movement-photography/",
+      "image": "/assets/blog-014-nature-movement-photography-hummingbird-hovering-at-feeder.jpg",
+      "hero": "/assets/blog-014-nature-movement-photography-hummingbird-hovering-at-feeder.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "5 months ago",
+      "categories": [
+        "500px-blog"
+      ],
+      "excerpt": "Wind, water, and wings bring movement into nature photography. Choose whether to freeze a moment or let motion become part of the composition."
+    },
+    {
+      "title": "Street and Sports Photography: Capture Energy and Tension",
+      "slug": "street-and-sports-photography-capture-energy-and-tension",
+      "source": "https://iso.500px.com/street-and-sports-photography-capture-energy-and-tension/",
+      "image": "/assets/blog-010-street-and-sports-photography-surfer-riding-barrel-wave.jpg",
+      "hero": "/assets/blog-010-street-and-sports-photography-surfer-riding-barrel-wave.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "6 months ago",
+      "categories": [
+        "500px-blog"
+      ],
+      "excerpt": "Street scenes and sports share a sense of anticipation. Watch the edges of the frame, follow the action, and choose the moment when movement becomes a clear visual story."
+    },
+    {
+      "title": "Candid Photography: Capturing Authentic Human Connection",
+      "slug": "candid-photography-capturing-authentic-human-connection",
+      "source": "https://iso.500px.com/candid-photography-capturing-authentic-human-connection/",
+      "image": "/assets/blog-015-candid-photography-elderly-women-laughing-together.jpg",
+      "hero": "/assets/blog-015-candid-photography-elderly-women-laughing-together.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "6 months ago",
+      "categories": [
+        "500px-blog"
+      ],
+      "excerpt": "Candid photographs depend on attention and patience. Notice small expressions and shared moments, give people room to be themselves, and approach each scene with care."
+    },
+    {
+      "title": "Silhouette Photography: Creating Drama with Shadows and Light",
+      "slug": "silhouette-photography-creating-drama-with-shadows-and-light",
+      "source": "https://iso.500px.com/silhouette-photography-creating-drama-with-shadows-and-light/",
+      "image": "/assets/blog-016-silhouette-photography-lone-tree-horse-rider-sunset-reflection.jpg",
+      "hero": "/assets/blog-016-silhouette-photography-lone-tree-horse-rider-sunset-reflection.jpg",
+      "author": "500px Blog",
+      "category": "500px Blog",
+      "date": "6 months ago",
+      "categories": [
+        "500px-blog"
+      ],
+      "excerpt": "A silhouette turns a subject into a strong, simple shape. Place the subject against a bright background and use separation, gesture, and negative space to create a clear composition."
+    }
+  ],
+  "fogImages": [
+    {
+      "src": "/assets/blog-023-240337835.jpg",
+      "alt": "Fog rolling over forested hills"
+    },
+    {
+      "src": "/assets/blog-024-1082309812.jpg",
+      "alt": "Clock tower in golden morning mist"
+    },
+    {
+      "src": "/assets/blog-025-1082280425.jpg",
+      "alt": "Lone tree above a yellow field"
+    },
+    {
+      "src": "/assets/blog-026-239776161-1500x1000.jpg",
+      "alt": "Traffic lights glowing through fog"
+    },
+    {
+      "src": "/assets/blog-027-3000767435.jpg",
+      "alt": "River mist beneath an autumn sky"
+    }
+  ]
+}

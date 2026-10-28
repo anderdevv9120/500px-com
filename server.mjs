@@ -7,6 +7,8 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 5000);
 const types = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.json':'application/json; charset=utf-8', '.svg':'image/svg+xml', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.png':'image/png', '.webp':'image/webp', '.avif':'image/avif', '.gif':'image/gif', '.woff2':'font/woff2', '.ico':'image/x-icon', '.pdf':'application/pdf' };
 const manifest = JSON.parse(await fs.readFile(path.join(root,'pages/manifest.json'),'utf8'));
+const catalog = JSON.parse(await fs.readFile(path.join(root,'catalog.json'),'utf8'));
+const licensingQuests = new Set(catalog.quests.filter(quest=>quest.type==='LICENSING').map(quest=>quest.href));
 
 const server = http.createServer(async (request,response) => {
   try {
@@ -15,7 +17,8 @@ const server = http.createServer(async (request,response) => {
     let page = manifest[route];
     if (['/popular','/fresh','/editors-picks','/upcoming','/discover'].includes(route)) page = manifest[route] || 'discover';
     if (route.startsWith('/photo/')) page ||= 'photo-lines';
-    if (route.startsWith('/quest/')) page ||= 'quest-mountains';
+    if (/^\/galler(?:y|ies)\/[^/]+$/.test(route)) page = 'gallery';
+    if (route.startsWith('/quest/')) page ||= licensingQuests.has(route) ? 'quest-licensing' : 'quest-mountains';
     if (route.startsWith('/p/') || route.startsWith('/user/')) page ||= 'profile';
     if (route.startsWith('/blog/')) page = 'blog';
     if (['/login','/signup','/upload','/manager/works','/manager/licensing'].includes(route)) page = 'discover';

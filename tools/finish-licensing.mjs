@@ -24,7 +24,7 @@ function asset(value) {
 function localize(value) {
   return value.replace(/\bsrc="([^"]+)"/g,(match,url)=>match.replace(url,asset(url)))
     .replace(/url\(["']?([^\)"']+)["']?\)/g,(_,url)=>`url("${asset(url)}")`)
-    .replace(/https:\/\/500px\.com\/(?!gallery\/)/g,'/');
+    .replace(/https:\/\/500px\.com\//g,'/');
 }
 
 try {
@@ -57,8 +57,7 @@ try {
     for(const c of collections){
       const section=root.querySelector('#'+c.id);section.dataset.grantSection='';
       const button=[...section.querySelectorAll('button')].find(b=>b.textContent==='See the full Collection');
-      link(button,'https://500px.com/gallery/'+c.galleryId);
-      const collectionLink=section.querySelector('a[href*="/gallery/"]');collectionLink.target='_blank';collectionLink.rel='noopener noreferrer';
+      link(button,'/gallery/'+c.galleryId);
     }
     return {body:root.outerHTML,title:document.title,collections,css:[...document.styleSheets].flatMap(s=>{try{return[...s.cssRules].map(r=>r.cssText)}catch{return[]}})};
   });

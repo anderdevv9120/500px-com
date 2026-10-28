@@ -44,6 +44,7 @@ async function capture(route, name) {
   if(name.startsWith('licensing')||name==='grants'){console.log('Licensing uses tools/finish-licensing.mjs');return;}
   if(name==='leaderboard'){console.log('Leaderboard uses tools/capture-leaderboard.mjs');return;}
   if(name==='quests'){console.log('Quests uses finished static fixtures; skipping the virtual-list capture.');return;}
+  if(name==='blog'){console.log('Blog uses the inspected ISO reference; preserving the finished local layout.');return;}
   const page = await browser.newPage();
   try {
     await page.goto(`https://500px.com${route === '/discover' ? '/' : route}`, { waitUntil: 'domcontentloaded', timeout: 45000 });

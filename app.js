@@ -10,7 +10,10 @@ if (!state || typeof state !== 'object' || Array.isArray(state)) state = {};
 for (const key of ['likes','saved','following','categories']) if (!Array.isArray(state[key])) state[key] = [];
 if (!state.comments || typeof state.comments !== 'object') state.comments = {};
 const saveState = () => { try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch { /* Browser storage may be unavailable; the current page still works. */ } };
-const catalogPromise = fetch('/catalog.json').then(response => { if (!response.ok) throw Error('Photo catalog unavailable'); return response.json(); });
+const catalogPromise = fetch('/catalog.json?v=quest-licensing-1').then(response => { if (!response.ok) throw Error('Photo catalog unavailable'); return response.json(); });
+let galleriesPromise;
+const galleries = () => galleriesPromise ||= fetch('/pages/galleries.json').then(response => { if (!response.ok) throw Error('Galleries unavailable'); return response.json(); });
+let galleryPhotos = [];
 let menu;
 let menuTrigger;
 let toastTimer;
@@ -206,8 +209,8 @@ async function lightbox(index = 0, automatic = false, photos) {
   if (automatic) slideshowTimer = setInterval(() => move(1),5000);
 }
 
-async function share(url = location.href) {
-  const dialog = openDialog('<h2>Share this photo</h2><p>Share your inspiration with the world.</p><label for="share-url">Link</label><input id="share-url" readonly><button class="primary" style="width:100%;margin-top:20px" data-copy>Copy link</button>');
+async function share(url = location.href, title = 'Share this photo') {
+  const dialog = openDialog(`<h2>${escapeHTML(title)}</h2><p>Share your inspiration with the world.</p><label for="share-url">Link</label><input id="share-url" readonly><button class="primary" style="width:100%;margin-top:20px" data-copy>Copy link</button>`);
   dialog.querySelector('input').value = url;
   dialog.querySelector('[data-copy]').addEventListener('click',() => {
     const input = dialog.querySelector('input'); input.select();
@@ -346,6 +349,56 @@ function initializeQuestCarousel() {
   }
 }
 
+async function renderLicensingQuest() {
+  const quest=(await catalogPromise).quests.find(q=>q.href===location.pathname.replace(/\/$/,''));
+  if(!quest||quest.type!=='LICENSING')throw Error('Licensing Quest unavailable');
+  document.title=`${quest.title} | Photography Quests | 500px`;
+  const afterHours=quest.href==='/quest/1000005269-after-hours';
+  const onTheClock=quest.href==='/quest/1000005271-on-the-clock';
+  const stamp=value=>new Date(value).toISOString().slice(0,16).replace('T',' ');
+  const description=afterHours?'Explore the character of your surroundings at night.':onTheClock?'Photograph everyday working life in real workplaces.':'Create authentic commercial photography inspired by this Quest’s theme.';
+  const brief=afterHours?'Make darkness part of the story. Photograph evening routines, working nights, quiet streets, portraits or landscapes, using the light you find to reveal a different side of familiar places.':onTheClock?'Look beyond staged meetings and business props. Document people carrying out their actual jobs, from workshops and kitchens to healthcare, transport and small businesses.':'Explore the theme through a fresh perspective. Look for believable moments, inclusive stories and photographs that commercial clients can use to connect with their audiences.';
+  const shots=afterHours?['People working or travelling late in the evening.','Street scenes shaped by rain, reflections and artificial light.','Portraits using a lamp, window or other available light.','Night markets, neighbourhood shops and places after closing.','Rural landscapes, moonlit settings and outdoor gatherings.','Movement and atmosphere captured in a long exposure.']:onTheClock?['Skilled trades and hands-on work in authentic settings.','Food service, healthcare, education and public transport.','Small businesses, creative studios and repair workshops.','People collaborating naturally on an everyday task.']:['People, places and details that tell a clear story about the theme.','Unposed interactions and everyday experiences.','A range of perspectives, compositions and inclusive subjects.'];
+  const keywords=afterHours?'Night, evening, low light, street, reflection, work, travel, moonlight, atmosphere, motion.':onTheClock?'Work, occupation, workplace, people, teamwork, craft, tools, skill, business.':'Use relevant subject, location, activity and concept keywords to describe your photographs.';
+  const count=afterHours?'3,520':onTheClock?'1,258':null;
+  const prize=afterHours||onTheClock?'1 prize of $50 US':'Cash prizes';
+  // shortcut: uncaptured Licensing briefs and award copy are representative; replace after a full reference capture.
+  document.querySelector('[data-licensing-quest]').innerHTML=`<div class="licensing-quest-cover"><img data-licensing-quest-hero src="${escapeHTML(quest.src)}" alt="${escapeHTML(quest.title)}">${afterHours?'<span class="licensing-quest-credit">Photo by Michael Anthony Mascorro</span>':''}</div>
+    <div class="licensing-quest-summary"><div class="licensing-quest-meta"><span>Juried Contests · Licensing quest</span><a href="/licensing">500px</a><button type="button" class="licensing-quest-share" data-licensing-quest-share aria-label="Share Quest"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M15 3h6v6M21 3 10 14M11 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6"/></svg></button></div>
+    <div class="licensing-quest-heading"><h1 data-licensing-quest-title>${escapeHTML(quest.title)}</h1><p>${description}</p><div class="licensing-quest-stats">${count?`<span>Photos: ${count}</span>`:''}<span class="licensing-quest-ended" data-quest-ended>Ended</span></div></div></div>
+    ${document.querySelector('#licensing-quest-tabs').innerHTML}
+    <div class="licensing-quest-body"><div role="tabpanel" id="licensing-introduction" aria-labelledby="licensing-tab-0" tabindex="0">
+    <section><h2>Introduction</h2><p>Licensing Quests offer a creative brief for growing your commercial portfolio, with opportunities to earn a cash award and create photographs for image buyers.</p><p>${brief}</p><p>Enter new uploads that have been submitted for exclusive Licensing through 500px.</p><h3>Suggested Shot List</h3><ul>${shots.map(shot=>`<li>${shot}</li>`).join('')}</ul><h3>Keywords</h3><p>${keywords}</p><h3>What to avoid</h3><ul><li>Visible branding, protected designs and recognizable property without the appropriate release.</li><li>Excessive retouching, unnatural colour effects and technical flaws.</li><li>${afterHours?'Artificially added stars or skies, lost highlight detail and aggressive noise reduction.':'Staged expressions or misleading depictions of the subject.'}</li></ul></section>
+    <section data-licensing-schedule><h2>Schedule</h2><dl class="licensing-quest-schedule"><div><dt>Submission</dt><dd>${stamp(quest.start)} ~ ${stamp(quest.end)} (UTC+0)</dd></div><div><dt>Announcement</dt><dd>${afterHours||onTheClock?`${stamp(quest.end)} (UTC+0)`:'Following the submission review'}</dd></div></dl></section>
+    <section><h2>Awards</h2><div class="licensing-quest-award" data-licensing-award><strong>${prize}</strong><p>${afterHours||onTheClock?'One selected photographer receives a $50 US cash award.':'Selected photographs are eligible for a cash award.'}</p></div></section>
+    <section><h2>Rules</h2><ul><li>Submit new photographs that are accepted for <a href="/licensing/contribute">500px Licensing</a>.</li><li>Provide a <a href="/licensing/releases">model release</a> for each recognizable person.</li><li>Obtain property releases for recognizable private spaces, artwork and tattoos.</li><li>Include accurate location information and relevant keywords.</li><li>Remove logos and branding from the image.</li><li>Keep edits natural and follow the <a href="/licensing/requirements">submission requirements</a>.</li></ul></section></div>
+    <div role="tabpanel" id="licensing-entries" aria-labelledby="licensing-tab-1" data-quest-entries tabindex="0" hidden></div></div>`;
+}
+
+async function renderGallery() {
+  const data=await galleries();
+  const id=location.pathname.split('/').filter(Boolean).pop();
+  const isGrant=location.pathname.startsWith('/gallery/');
+  const owner=new URLSearchParams(location.search).get('owner') || 'MarcoGrassi';
+  const profile=Object.hasOwn(data.profiles,owner)?data.profiles[owner]:null;
+  const gallery=isGrant?data.grants.find(g=>g.id===id):profile?.galleries.find(g=>g.id===id);
+  const main=document.querySelector('[data-gallery]');
+  if(!gallery){document.title='Gallery not found | 500px';main.innerHTML='<h1>Gallery not found</h1><p>This gallery is not available in the local collection.</p><a class="gallery-back" href="/discover">Explore photography</a>';return;}
+  document.title=`${gallery.title} | 500px`;
+  galleryPhotos=gallery.photos;
+  const back=isGrant?`/grants#${gallery.section}`:`/p/${owner}?view=galleries`;
+  const ownerHref=isGrant?'/grants':`/p/${owner}`;
+  const ownerName=isGrant?'500px':profile.name;
+  const following=state.following.includes(ownerHref);
+  // shortcut: Grant galleries contain captured preview photos; expand when full collections can be captured.
+  main.innerHTML=`<a class="gallery-back" data-gallery-back href="${back}">← ${isGrant?'Commercial Grants':`Galleries by ${escapeHTML(ownerName)}`}</a>
+    <section class="gallery-header" aria-labelledby="gallery-title"><h1 id="gallery-title">${escapeHTML(gallery.title)}</h1>
+    <div class="gallery-owner-row"><a class="gallery-owner" href="${ownerHref}">${isGrant?'<span class="gallery-avatar" aria-hidden="true">500px</span>':`<img class="gallery-avatar" src="${escapeHTML(profile.avatar)}" alt="">`}<span><small>Curated by</small><span data-gallery-owner>${escapeHTML(ownerName)}</span></span></a>${isGrant?'':`<button class="gallery-control gallery-follow" data-follow-owner="${ownerHref}" aria-pressed="${following}">${following?'Following':'Follow'}</button>`}</div>
+    <p class="gallery-description">${escapeHTML(gallery.description)}</p></section>
+    <div class="gallery-toolbar"><span class="gallery-count">${gallery.photos.length} photos</span><div class="gallery-actions"><button class="gallery-control" data-gallery-action="slideshow" aria-label="Start slideshow">Slideshow</button><button class="gallery-control" data-gallery-action="share" aria-label="Share gallery">Share</button></div></div>
+    <div class="gallery-photos">${gallery.photos.map((photo,index)=>`<figure class="gallery-photo">${isGrant?`<button data-gallery-photo="${index}" aria-label="View ${escapeHTML(photo.title)}">`:`<a data-gallery-photo="${index}" href="${escapeHTML(photo.href)}">`}<img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" ${index>5?'loading="lazy"':''}>${isGrant?'</button>':'</a>'}<figcaption>${isGrant?'':`<strong>${escapeHTML(photo.title)}</strong>`}${escapeHTML(photo.author)}</figcaption></figure>`).join('')}</div>`;
+}
+
 async function handleTab(button) {
   const list=button.closest('[role="tablist"]');
   if (!list) return;
@@ -375,8 +428,9 @@ async function handleTab(button) {
     if(text.startsWith('Works')){if(grid)grid.hidden=false;panel.hidden=true;layoutGrids();}
     else if(text.startsWith('Galleries')){
       if(grid)grid.hidden=true;panel.hidden=false;
-      const photos=(await catalogPromise).photos.slice(0,6);
-      panel.innerHTML=`<div class="local-grid">${photos.map((p,i)=>`<a href="/galleries/${i}" class="local-collection-card"><img src="${escapeHTML(p.src)}" alt="${escapeHTML(p.title)}"><span>${['Landscapes','Mountains','Around the world','Light & shadow','Nature','Favorites'][i]}</span></a>`).join('')}</div>`;
+      const owner=pageName==='profile-pawel'?'paweluchorczak':'MarcoGrassi';
+      const profile=(await galleries()).profiles[owner];
+      panel.innerHTML=`<div class="local-grid">${profile.galleries.map(gallery=>`<a href="/galleries/${gallery.id}?owner=${owner}" class="local-collection-card"><img src="${escapeHTML(gallery.photos[0].src)}" alt=""><span>${escapeHTML(gallery.title)}</span></a>`).join('')}</div>`;
     } else {if(grid)grid.hidden=true;panel.hidden=false;const quests=(await catalogPromise).quests;panel.innerHTML=photoGrid(quests.map(q=>({...q,author:'500px Quest'})));}
   }
 }
@@ -384,6 +438,15 @@ async function handleTab(button) {
 async function handleClick(event) {
   const target=event.target instanceof Element?event.target:null;
   if(!target)return;
+  const galleryAction=target.closest('[data-gallery-action]');
+  if(galleryAction){
+    if(galleryAction.dataset.galleryAction==='share')await share(location.href,'Share this gallery');
+    else await lightbox(0,true,galleryPhotos);
+    return;
+  }
+  const galleryPhoto=target.closest('button[data-gallery-photo]');
+  if(galleryPhoto){await lightbox(Number(galleryPhoto.dataset.galleryPhoto),false,galleryPhotos);return;}
+  if(target.closest('[data-licensing-quest-share]')){await share(location.href,'Share this Quest');return;}
   const button=target.closest('button,[role="button"],[role="tab"]');
   const text=button?.textContent.trim()||'';
   const label=button?.getAttribute('aria-label');
@@ -455,7 +518,7 @@ async function handleClick(event) {
     event.preventDefault();showMenu(button||target,[{label:'Share',action:share},{label:'Save to gallery',action:()=>collect({href:photoKey})},{label:'Report photo',action:()=>toast('Report received in the local demo.')}]);return;
   }
   if(text==='Follow'||text==='Following'){
-    const key=location.pathname;const following=toggleStored('following',key,button,'local-active');button.textContent=following?'Following':'Follow';return;
+    const key=button.dataset.followOwner||location.pathname;const following=toggleStored('following',key,button,'local-active');button.textContent=following?'Following':'Follow';return;
   }
   if(label==='Repost'||track==='repost_btn'){event.preventDefault();if(!state.user)await login();else toast('Reposted to your local profile.');return;}
   if(track==='creator_avatar'&&!target.closest('a')){const author=target.closest('[data-track-id="creator_avatar"]')?.textContent||'';location.assign(author.includes('Paweł')?'/p/paweluchorczak':'/p/MarcoGrassi');return;}
@@ -472,8 +535,6 @@ async function handleClick(event) {
   if(text==='View Cover'){const photos=(await catalogPromise).photos;await lightbox(0,false,photos);return;}
   if(text==='More'&&pageName.startsWith('profile')){const p=all('p').find(e=>e.textContent.includes('Marco Grassi is'));if(p){p.style.maxHeight='none';p.style.webkitLineClamp='unset';button.hidden=true;}return;}
   if(pageName.startsWith('photo-')&&target.tagName==='IMG'&&target.alt&&target.getBoundingClientRect().width>300){const photos=(await catalogPromise).photos;const photo=photos.find(p=>p.href===location.pathname)||{src:target.src,title:target.alt,author:all('[data-track-id="creator_avatar"]')[0]?.textContent||''};await lightbox(0,false,[photo]);return;}
-  const link=target.closest('a');
-  if(link?.getAttribute('href')?.startsWith('/galleries/')){event.preventDefault();const photos=(await catalogPromise).photos;openDialog(`<h2>Gallery</h2>${photoGrid(photos.slice(Number(link.pathname.split('/').pop())*6,Number(link.pathname.split('/').pop())*6+6))}`);return;}
   if(text==='Customer Support'||label==='Open customer service'){openDialog('<h2>How can we help?</h2><p>Explore the Licensing guides for submission requirements, releases, and distribution.</p><a class="local-primary" href="/licensing">Visit Licensing guides</a>');}
 }
 
@@ -520,6 +581,12 @@ async function initialize() {
   all('.MuiSkeleton-root,.resize-triggers').forEach(el=>el.remove());
   all('[data-quests-filter-bar]').forEach(bar=>{if(bar.firstElementChild)bar.firstElementChild.style.flexWrap='wrap';});
   layoutGrids();
+  if(pageName==='gallery')await renderGallery();
+  if(pageName==='quest-licensing')await renderLicensingQuest();
+  if(pageName.startsWith('profile')&&new URLSearchParams(location.search).get('view')==='galleries'){
+    const tab=all('[role="tab"]').find(tab=>tab.textContent.trim().startsWith('Galleries'));
+    if(tab)await handleTab(tab);
+  }
   all('header input[type="search"]').forEach(input=>{
     input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();const query=input.value.trim();if(query){const type=input.closest('header').querySelector('[data-search-type]')?.dataset.searchType||'photos';location.assign(`/search?q=${encodeURIComponent(query)}&type=${type}`);}}});
   });
@@ -547,7 +614,7 @@ async function initialize() {
     const author=all('[data-track-id="creator_avatar"]').find(el=>el.tagName==='SPAN');
     if(author)author.parentElement.parentElement.parentElement.dataset.photoAuthorHeader='';
   }
-  if(pageName.startsWith('quest-')&&location.pathname!=='/quest/0cqon9TXhfJ'&&location.pathname!=='/quest/SDjF78KIQrn'){
+  if(pageName.startsWith('quest-')&&pageName!=='quest-licensing'&&location.pathname!=='/quest/0cqon9TXhfJ'&&location.pathname!=='/quest/SDjF78KIQrn'){
     const quest=(await catalogPromise).quests.find(q=>q.href===location.pathname);
     if(quest){all('*').filter(el=>!el.children.length&&el.textContent==='Monumental Mountains').forEach(el=>el.textContent=quest.title);document.title=`${quest.title} | 500px Quests`;}
   }
@@ -600,16 +667,53 @@ async function renderLeaderboard(period = document.querySelector('[data-leaderbo
 }
 
 async function renderBlog() {
-  document.title='500px Blog | Photography, Inspiration & Community';
-  const photos=(await catalogPromise).photos;
-  const articles=[['Finding your photographic voice','A fresh perspective starts with the way you see.'],['The art of landscape photography','Explore light, composition, and the landscapes that inspire us.'],['Meet the 500px community','Discover the photographers behind extraordinary images.'],['A guide to Licensing your photos','Turn your best photography into new opportunities.'],['Small details. Extraordinary stories.','See familiar places through a different lens.'],['The power of black and white','Let light and form tell the story.']];
-  const main=document.createElement('main');main.className='local-blog';
-  const slug=location.pathname.split('/')[2];
-  if(slug){
-    const index=Math.max(0,articles.findIndex(a=>a[0].toLowerCase().replace(/[^a-z0-9]+/g,'-')===slug));const article=articles[index];
-    main.innerHTML=`<article><a href="/blog" style="color:#aaa">← All stories</a><p>500px Blog · Photography</p><h1>${article[0]}</h1><img src="${escapeHTML(photos[index].src)}" alt="${escapeHTML(photos[index].title)}"><p>${article[1]}</p><p>Every photograph begins with a moment of attention. Notice the direction of the light, the relationships between shapes, and the details that make a scene your own.</p><p>Try a new point of view. Return to a familiar location at a different time of day. Give yourself time to experiment, and share the photographs that tell your story.</p><p>Explore the work of the 500px community and find inspiration for your next photograph.</p><a class="local-primary" href="/discover">Explore photography</a></article>`;
-  }else main.innerHTML=`<h1>The 500px Blog</h1><p style="color:#999">Photography. Inspiration. Community.</p><div class="local-grid">${articles.map((a,i)=>`<a href="/blog/${a[0].toLowerCase().replace(/[^a-z0-9]+/g,'-')}"><img src="${escapeHTML(photos[i].src)}" alt="${escapeHTML(photos[i].title)}"><small>PHOTOGRAPHY</small><h2>${a[0]}</h2><p>${a[1]}</p></a>`).join('')}</div>`;
-  document.querySelector('#root').append(main);
+  const response=await fetch('/pages/blog-posts.json');
+  if(!response.ok)throw Error('Blog content unavailable');
+  const {posts,navigation,fogImages}=await response.json();
+  const main=document.querySelector('#blog-main');
+  const e=escapeHTML;
+  const link=post=>`/blog/${post.slug}`;
+  const image=post=>`<a href="${link(post)}" data-blog-post><img src="${e(post.image)}" alt="${e(post.title)}"></a>`;
+  const meta=post=>`<p class="blog-post-meta"><a href="/blog/category/${e(post.categories[0])}">${e(post.category)}</a> · ${e(post.date)}</p>`;
+  const cards=list=>list.map(post=>`<article>${image(post)}<h3><a href="${link(post)}" data-blog-post>${e(post.title)}</a></h3>${meta(post)}</article>`).join('');
+  const hero=(post,article)=>`<section class="blog-hero${article?' blog-hero-article':''}"><img src="${e(post.hero)}" alt="${e(post.title)}"><div class="blog-container"><div class="blog-hero-copy"><p class="blog-eyebrow">${article?e(post.category):'Featured Article'}</p><h1>${article?e(post.title):`<a href="${link(post)}" data-blog-post>${e(post.title)}</a>`}</h1><p class="blog-byline">Published by <strong>${e(post.author)}</strong> · ${e(post.date)}</p>${article?'':`<p class="blog-hero-excerpt">${e(post.excerpt)}</p>`}<div class="blog-share"><button type="button" data-blog-share aria-label="Share article">↗</button><button type="button" data-blog-share aria-label="Get article link">⧉</button></div></div></div></section>`;
+  document.querySelector('.blog-categories').innerHTML=navigation.map(group=>`<details><summary>${e(group.label)}</summary><div><a href="${e(group.href)}">All ${e(group.label)}</a>${group.children.filter(child=>child.href!==group.href).map(child=>`<a href="${e(child.href)}">${e(child.label)}</a>`).join('')}</div></details>`).join('');
+  const path=location.pathname.replace(/\/$/,'');
+  const slug=path.slice('/blog/'.length);
+  const missing=title=>{document.title=`${title} | 500px Blog`;main.innerHTML=`<div class="blog-container blog-not-found"><h1>${title}</h1><p>This page is not part of the local Blog snapshot.</p><a href="/blog">Back to the Blog</a></div>`;};
+  if(path==='/blog'){
+    document.title='500px Blog';
+    main.innerHTML=`${hero(posts[0],false)}<div class="blog-container"><h2 class="blog-section-heading">Top Posts</h2><div class="blog-top-posts">${posts.slice(0,5).map(post=>`<article>${image(post)}<div><h3><a href="${link(post)}" data-blog-post>${e(post.title)}</a></h3><p class="blog-post-meta">by <a href="/blog/category/500px-blog">${e(post.author)}</a> in <a href="/blog/category/500px-blog">${e(post.category)}</a> · ${e(post.date)}</p><p class="blog-excerpt">${e(post.excerpt)}</p><a class="blog-read-more" href="${link(post)}" data-blog-post>Keep reading</a></div></article>`).join('')}</div><h2 class="blog-section-heading">Latest Posts</h2><div class="blog-latest-layout"><div class="blog-latest-grid">${cards(posts.slice(5))}</div><aside class="blog-tweets"><a href="https://twitter.com/500px">Tweets by @500px</a></aside></div></div>`;
+  }else if(slug.startsWith('category/')){
+    const category=slug.slice('category/'.length);
+    const selected=navigation.flatMap(group=>[{label:group.label,href:group.href},...group.children]).find(item=>item.href===path);
+    const extra=new Map([['creative','Inspiration'],['interviews','Interviews'],['500px-blog','500px Blog'],['uncategorized','Uncategorized']]);
+    const title=selected?.label||extra.get(category);
+    if(!title)missing('Category not found');
+    else {
+      document.title=`${title} | 500px Blog`;
+      const matches=posts.filter(post=>post.categories.includes(category.split('/').at(-1)));
+      main.innerHTML=`<div class="blog-container blog-archive"><a href="/blog">← 500px Blog</a><h1>${e(title)}</h1>${matches.length?`<div class="blog-latest-grid">${cards(matches)}</div>`:'<p>No stories in this category are included in the local snapshot.</p>'}</div>`;
+    }
+  }else {
+    const index=posts.findIndex(post=>post.slug===slug);
+    if(index===-1)missing('Article not found');
+    else {
+      const post=posts[index];document.title=`${post.title} | 500px Blog`;
+      const figure=photo=>`<figure><img src="${e(photo.src)}" alt="${e(photo.alt)}"></figure>`;
+      // shortcut: article copy is condensed; replace fixtures if full editorial content is commissioned.
+      const body=index===0?`${figure(fogImages[0])}<h2>Why fog makes such strong images</h2><p>Distant forms fade while nearby subjects remain clear.</p><h2>When and where to find it</h2><p>Explore rivers and valleys around sunrise after cool nights.</p>${figure(fogImages[1])}<h2>Composing in low visibility</h2><h3>Find one clear subject</h3><p>Give a single shape room to stand out.</p>${figure(fogImages[2])}<h3>Layer your scene</h3><p>Arrange overlapping shapes to suggest distance.</p><h3>Use light sources</h3><p>Watch how small lights illuminate the mist.</p>${figure(fogImages[3])}<h2>Getting exposure right</h2><p>Check highlights and keep important details sharp.</p>${figure(fogImages[4])}<h2>The mood of the unseen</h2><p>Leave space for the viewer’s imagination.</p>`:`${figure({src:post.image,alt:post.title})}<h2>A closer look</h2><p>Take time to explore the light, shapes, and relationships in the frame. Small changes in viewpoint can reveal a different story.</p><h2>Keep exploring</h2><p>Try this approach with your own photography, then explore more ideas from the 500px community.</p>`;
+      const previous=posts[index===0?8:index-1],next=posts[index===0?7:(index+1)%posts.length];
+      main.innerHTML=`${hero(post,true)}<article class="blog-article"><p>${e(post.excerpt)}</p>${body}<a href="/blog">← Back to the Blog</a></article><nav class="blog-post-navigation" aria-label="Article navigation"><div class="blog-container">${[[previous,'Previous Post'],[next,'Next Post']].map(([item,label])=>`<a href="${link(item)}">${label}<img src="${e(item.image)}" alt=""><strong>${e(item.title)}</strong></a>`).join('')}</div></nav>`;
+    }
+  }
+  main.removeAttribute('aria-busy');
+  main.querySelectorAll('[data-blog-share]').forEach(button=>button.addEventListener('click',()=>share(new URL(link(posts.find(post=>post.slug===slug)||posts[0]),location.origin).href,'Share this article').catch(reportError)));
+  const toggle=document.querySelector('.blog-menu-toggle');
+  toggle.addEventListener('click',()=>toggle.setAttribute('aria-expanded',String(toggle.getAttribute('aria-expanded')!=='true')));
+  const details=all('.blog-header details');
+  details.forEach(item=>item.addEventListener('toggle',()=>{if(item.open)details.filter(other=>other!==item).forEach(other=>other.open=false);}));
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=details.find(item=>item.open);details.forEach(item=>item.open=false);if(toggle.getAttribute('aria-expanded')==='true'){toggle.setAttribute('aria-expanded','false');toggle.focus();}else open?.querySelector('summary').focus();}});
 }
 
 document.addEventListener('click',event=>{handleClick(event).catch(reportError);});
@@ -620,10 +724,10 @@ document.addEventListener('keydown',event=>{
     if(contents&&!document.querySelector('dialog[open]')){contents.setAttribute('aria-expanded','false');contents.focus();}
     return;
   }
-  if(pageName==='leaderboard'&&event.target.matches('[role="tab"]')&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
+  if(['leaderboard','quest-licensing'].includes(pageName)&&event.target.matches('[role="tab"]')&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
     event.preventDefault();const tabs=all('[role="tab"]',event.target.closest('[role="tablist"]'));
     const index=event.key==='Home'?0:event.key==='End'?tabs.length-1:(tabs.indexOf(event.target)+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
-    tabs[index]?.click();return;
+    tabs[index]?.focus();tabs[index]?.click();return;
   }
   if(menu&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();const items=all('[role="menuitem"]',menu);const index=items.indexOf(document.activeElement);items[(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();return;}
   if(['Enter',' '].includes(event.key)&&event.target.matches('[role="button"]:not(button),[role="tab"]:not(button)')){event.preventDefault();event.target.click();}

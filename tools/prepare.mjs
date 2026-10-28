@@ -34,7 +34,7 @@ const catalog={photos:[],quests:[]};
 const photoIds=new Set();
 const page=await browser.newPage();
 try{
-  for(const file of(await fs.readdir('pages')).filter(x=>x.endsWith('.html')&&!x.startsWith('leaderboard')&&!x.startsWith('licensing')&&x!=='grants.html')){
+  for(const file of(await fs.readdir('pages')).filter(x=>x.endsWith('.html')&&!x.startsWith('leaderboard')&&!x.startsWith('licensing')&&x!=='grants.html'&&x!=='blog.html')){
     let html=await fs.readFile(`pages/${file}`,'utf8');
     for(const[from,to]of replacements)html=html.replaceAll(from,to);
     const result=await page.evaluate(html=>{
@@ -68,7 +68,7 @@ try{
         if(!img)return null;
         if(!card.hasAttribute('data-quest-card'))card.dataset.questCard='';
         const title=a.getAttribute('aria-label')||card.querySelector('p')?.textContent||'Quest';
-        return{href:a.getAttribute('href'),title,src:img.getAttribute('src'),text:card.textContent};
+        return{href:a.getAttribute('href'),title,src:img.getAttribute('src'),text:card.textContent,...(card.dataset.type==='LICENSING'?{type:card.dataset.type,start:card.dataset.start,end:card.dataset.end,status:card.dataset.status}:{})};
       }).filter(Boolean);
       return{html:'<!doctype html>\n'+doc.documentElement.outerHTML,photos,quests};
     },html);
