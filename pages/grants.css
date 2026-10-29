@@ -410,7 +410,7 @@ label[data-shrink="false"] + .MuiInputBase-formControl .css-achaci:focus::-webki
 @media (min-width: 1025px) {
   .css-1lz0ixk { gap: clamp(32px, 4vw, 64px); grid-template-columns: 1.05fr 1fr; }
 }
-.css-2d98ps { opacity: 0; transform: translateY(16px); transition: opacity 0.6s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform; }
+.css-2d98ps { opacity: 1; transform: none; transition: opacity 0.6s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform; }
 @media (prefers-reduced-motion: reduce) {
   .css-2d98ps { opacity: 1; transform: none; transition: none; }
 }
@@ -532,7 +532,7 @@ label[data-shrink="false"] + .MuiInputBase-formControl .css-achaci:focus::-webki
 @media (min-width: 1025px) {
   .css-ity9oc { gap: calc(12 * var(--mui-spacing)); grid-template-columns: 1fr 1fr; }
 }
-.css-177nfmx { opacity: 0; transform: translateY(16px); transition: opacity 0.6s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform; }
+.css-177nfmx { opacity: 1; transform: none; transition: opacity 0.6s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform; }
 @media (prefers-reduced-motion: reduce) {
   .css-177nfmx { opacity: 1; transform: none; transition: none; }
 }
@@ -589,7 +589,7 @@ label[data-shrink="false"] + .MuiInputBase-formControl .css-achaci:focus::-webki
 .css-qmegvq.Mui-disabled:active { background-color: var(--mui-palette-whiteBlack-main); }
 .css-qmegvq:hover { background-color: var(--mui-palette-fillGrey2-main); }
 .css-qmegvq:active { background-color: var(--mui-palette-whiteBlack-main); }
-.css-mk7eym { opacity: 0; transform: translateY(16px); transition: opacity 0.6s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform; margin-top: calc(10 * var(--mui-spacing)); }
+.css-mk7eym { opacity: 1; transform: none; transition: opacity 0.6s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform; margin-top: calc(10 * var(--mui-spacing)); }
 @media (prefers-reduced-motion: reduce) {
   .css-mk7eym { opacity: 1; transform: none; transition: none; }
 }
@@ -954,6 +954,17 @@ label[data-shrink="false"] + .MuiInputBase-formControl .css-achaci:focus::-webki
 }
 @media (max-width: 476px) {
   .css-zuu2ea { display: none; }
+}
+/* Keep the project navigation below both rows of the mobile header. */
+body[data-page="grants"] { --grant-header-height: 64px; }
+body[data-page="grants"] .css-wjpvxa { top: var(--grant-header-height); }
+body[data-page="grants"] [data-grant-section] { scroll-margin-top: calc(var(--grant-header-height) + 76px); }
+.grants-reveals :is(.css-177nfmx,.css-2d98ps,.css-mk7eym):not(.grant-visible) { opacity: 0; transform: translateY(16px); }
+@media (max-width: 768.95px) {
+  body[data-page="grants"] { --grant-header-height: 120px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .grants-reveals :is(.css-177nfmx,.css-2d98ps,.css-mk7eym):not(.grant-visible) { opacity: 1; transform: none; }
 }
 .css-ds5a4q { position: relative; z-index: 1; }
 @media (max-width: 1199px) {

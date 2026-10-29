@@ -16,6 +16,7 @@ const galleries = () => galleriesPromise ||= fetch('/pages/galleries.json').then
 let galleryPhotos = [];
 let menu;
 let menuTrigger;
+let menuCloseTimer;
 let toastTimer;
 let lastFocus;
 let slideshowTimer;
@@ -42,18 +43,34 @@ function reportError(error) {
 }
 
 function closeMenu() {
-  menu?.remove();
+  clearTimeout(menuCloseTimer);
+  const closing = menu;
+  if (!closing) return;
+  const css = getComputedStyle(closing);
+  const opacity = css.opacity;
+  const transform = css.transform;
+  closing.getAnimations().forEach(animation => animation.cancel());
+  closing.inert = true;
+  closing.setAttribute('aria-hidden','true');
+  const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : Number(closing.dataset.duration);
+  const timing = {duration, easing:'cubic-bezier(0.4, 0, 0.2, 1)', fill:'forwards'};
+  const fade = closing.animate([{opacity},{opacity:0}],timing);
+  closing.animate([{transform},{transform:'scale(0.75, 0.5625)'}],{...timing,duration:duration*2/3,delay:duration/3});
+  fade.addEventListener('finish',() => closing.remove(),{once:true});
   menu = null;
   menuTrigger?.setAttribute('aria-expanded','false');
+  menuTrigger = null;
 }
 
 function showMenu(trigger, items) {
   if (menu && menuTrigger === trigger) { closeMenu(); return; }
   closeMenu();
   menuTrigger = trigger;
+  trigger.setAttribute('aria-haspopup','menu');
   trigger.setAttribute('aria-expanded','true');
   menu = document.createElement('div');
   menu.className = 'local-menu';
+  if (trigger.closest('header')) menu.classList.add('local-header-menu');
   menu.setAttribute('role','menu');
   for (const item of items) {
     const element = document.createElement(item.href ? 'a' : 'button');
@@ -64,9 +81,83 @@ function showMenu(trigger, items) {
     menu.append(element);
   }
   document.body.append(menu);
-  const bounds = trigger.getBoundingClientRect();
+  const region = trigger.closest('[data-nav-item]');
+  const bounds = (region || trigger).getBoundingClientRect();
+  if (region) menu.style.minWidth = `${Math.round(bounds.width)}px`;
   menu.style.left = `${Math.max(8,Math.min(bounds.left,innerWidth - menu.offsetWidth - 12))}px`;
-  menu.style.top = `${Math.min(bounds.bottom + 9,innerHeight - menu.offsetHeight - 12)}px`;
+  menu.style.top = `${Math.min(bounds.bottom + (region ? 12 : 9),innerHeight - menu.offsetHeight - 12)}px`;
+  const height = menu.offsetHeight / 36;
+  // Match the reference's height-based Material UI Grow timing.
+  const duration = Math.round((4 + 15 * height ** .25 + height / 5) * 10);
+  menu.dataset.duration = duration;
+  const timing = {duration:matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : duration,easing:'cubic-bezier(0.4, 0, 0.2, 1)'};
+  menu.animate([{opacity:0},{opacity:1}],timing);
+  menu.animate([{transform:'scale(0.75, 0.5625)'},{transform:'scale(1)'}],{...timing,duration:timing.duration*2/3});
+  if (trigger.closest('header') && trigger.getAttribute('aria-label') !== 'Toggle navigation') {
+    menu.addEventListener('pointerenter',() => clearTimeout(menuCloseTimer));
+    menu.addEventListener('pointerleave',scheduleMenuClose);
+  }
+  menu.addEventListener('focusout',event => {
+    if (!menu?.contains(event.relatedTarget) && event.relatedTarget !== menuTrigger) closeMenu();
+  });
+}
+
+function scheduleMenuClose(event) {
+  if (event.pointerType !== 'mouse') return;
+  clearTimeout(menuCloseTimer);
+  menuCloseTimer = setTimeout(() => {
+    if (!menu?.matches(':hover,:focus-within') && !menuTrigger?.matches(':hover,:focus-within')) closeMenu();
+  },120);
+}
+
+function initializeHeaderMenus() {
+  const navigation = document.querySelector('header [data-nav-item]')?.parentElement;
+  if (navigation) {
+    navigation.dataset.headerNavigation = '';
+    const highlight = navigation.firstElementChild;
+    highlight.dataset.headerHighlight = '';
+    const items = all('[data-nav-item]',navigation);
+    const path = location.pathname;
+    const activeName = /^\/(?:$|discover$|popular$|fresh$|editors-picks$|upcoming$|leaderboard$)/.test(path) ? 'Inspiration' :
+      /^\/quests?(?:\/|$)/.test(path) ? 'Quests' : /^\/(?:licensing|grants)(?:\/|$)/.test(path) ? 'Licensing' : path === '/vivo_image' ? 'Vivo' : null;
+    const active = items.find(item => item.dataset.navItem === activeName);
+    let hovered;
+    const updateHighlight = () => {
+      const item = hovered || items.find(item => item.querySelector('[aria-expanded="true"]')) || active;
+      highlight.style.opacity = item?.offsetWidth ? '1' : '0';
+      if (item?.offsetWidth) {
+        highlight.style.width = `${item.offsetWidth}px`;
+        highlight.style.transform = `translateX(${item.offsetLeft}px)`;
+      }
+    };
+    items.forEach(item => item.addEventListener('pointerenter',event => {
+      if (event.pointerType !== 'mouse' || !matchMedia('(hover: hover)').matches) return;
+      hovered = item;
+      if (menuTrigger?.closest('header') && !item.contains(menuTrigger)) closeMenu();
+      updateHighlight();
+    }));
+    navigation.addEventListener('pointerleave',() => { hovered = null; updateHighlight(); });
+    new MutationObserver(updateHighlight).observe(navigation,{subtree:true,attributes:true,attributeFilter:['aria-expanded']});
+    new ResizeObserver(updateHighlight).observe(navigation);
+    updateHighlight();
+  }
+  all('header button').filter(button => ['Inspiration','Licensing','More'].includes(button.getAttribute('aria-label')) || ['Photos','Users','Galleries','Quests','My account'].includes(button.textContent.trim())).forEach(trigger => {
+    const region = trigger.closest('[data-nav-item]') || trigger;
+    trigger.setAttribute('aria-haspopup','menu');
+    if (trigger.getAttribute('aria-label') !== 'More' && trigger.querySelector('svg')) trigger.querySelector('svg').dataset.headerChevron = '';
+    region.addEventListener('pointerenter',event => {
+      if (event.pointerType !== 'mouse' || !matchMedia('(hover: hover)').matches) return;
+      clearTimeout(menuCloseTimer);
+      if (menuTrigger !== trigger) trigger.click();
+    });
+    region.addEventListener('pointerleave',scheduleMenuClose);
+    trigger.addEventListener('keydown',event => {
+      if (event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      if (menuTrigger !== trigger) trigger.click();
+      menu?.querySelector('[role="menuitem"]')?.focus();
+    });
+  });
 }
 
 function openDialog(content, className = '') {
@@ -482,7 +573,7 @@ async function handleClick(event) {
   }
   if (target.closest('header')&&['Inspiration','Licensing','More','Toggle navigation'].includes(label)) {
     event.preventDefault();
-    const items=label==='Inspiration'?[{label:'For You',href:'/discover'},{label:'Fresh Picks',href:'/fresh'},{label:"Editors’ Choice",href:'/editors-picks'},{label:'Top Ranked',href:'/leaderboard'}]:label==='Licensing'?[{label:'About Licensing',href:'/licensing/licensing'},{label:'Become a Contributor',href:'/licensing/contribute'},{label:'Submission Requirements',href:'/licensing/requirements'},{label:'Content Types',href:'/licensing/content'},{label:'Content Distribution',href:'/licensing/distribution'},{label:'Commercial Grants',href:'/grants'}]:[{label:'Inspiration',href:'/discover'},{label:'Quests',href:'/quests'},{label:'Licensing',href:'/licensing'},{label:'vivo X500',href:'/vivo_image'},{label:'About Us',href:'/aboutus'},{label:'Blog',href:'/blog'},{label:'Download the app',href:'/download'},{label:'Upload',action:upload}];
+    const items=label==='Inspiration'?[{label:'For You',href:'/discover'},{label:'Fresh Picks',href:'/fresh'},{label:"Editors' Choice",href:'/editors-picks'},{label:'Top Ranked',href:'/leaderboard'}]:label==='Licensing'?[{label:'About Licensing',href:'/licensing/licensing'},{label:'Become a Contributor',href:'/licensing/contribute'},{label:'Submission Requirements',href:'/licensing/requirements'},{label:'Content Types',href:'/licensing/content'},{label:'Content Distribution',href:'/licensing/distribution'},{label:'Commercial Grants',href:'/grants'}]:[{label:'Inspiration',href:'/discover'},{label:'Quests',href:'/quests'},{label:'Licensing',href:'/licensing'},{label:'vivo X500',href:'/vivo_image'},{label:'About Us',href:'/aboutus'},{label:'Blog',href:'/blog'},{label:'Download the app',href:'/download'},{label:'Upload',action:upload}];
     showMenu(button,items);return;
   }
   if(target.closest('header')&&['Photos','Users','Galleries','Quests'].includes(text)){
@@ -629,18 +720,36 @@ async function initialize() {
   }
   if(pageName==='leaderboard')await renderLeaderboard();
   if(pageName==='grants'){
-    const observer=new IntersectionObserver(entries=>{
-      const current=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>b.intersectionRect.height-a.intersectionRect.height)[0];
-      if(!current)return;
+    const main=document.querySelector('main');
+    if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+      main.classList.add('grants-reveals');
+      const reveal=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(!entry.isIntersecting)continue;
+          entry.target.classList.add('grant-visible');
+          reveal.unobserve(entry.target);
+        }
+      });
+      all('.css-177nfmx,.css-2d98ps,.css-mk7eym',main).forEach(element=>reveal.observe(element));
+    }
+    const sections=all('[data-grant-section]');
+    const observer=new IntersectionObserver(()=>{
+      const current=sections.filter(section=>section.getBoundingClientRect().top<=innerHeight/2).at(-1)||sections[0];
       all('[data-grant-target]').forEach(link=>{
-        const selected=link.dataset.grantTarget===current.target.id;
-        if(selected)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');
+        const selected=link.dataset.grantTarget===current.id;
+        if(selected){
+          if(link.hasAttribute('aria-current'))return;
+          link.setAttribute('aria-current','location');
+          const navigation=link.parentElement;
+          navigation.scrollTo({left:link.offsetLeft-navigation.offsetLeft-(navigation.clientWidth-link.offsetWidth)/2,behavior:'smooth'});
+        }else link.removeAttribute('aria-current');
       });
     },{rootMargin:'-140px 0px -50% 0px'});
-    all('[data-grant-section]').forEach(section=>observer.observe(section));
+    sections.forEach(section=>observer.observe(section));
   }
   if(pageName==='blog')await renderBlog();
   refreshAccount();
+  initializeHeaderMenus();
   if(['/login','/signup'].includes(location.pathname))await login();
   if(['/upload','/manager/works','/manager/licensing'].includes(location.pathname))await upload();
 }
@@ -677,7 +786,7 @@ async function renderBlog() {
   const meta=post=>`<p class="blog-post-meta"><a href="/blog/category/${e(post.categories[0])}">${e(post.category)}</a> · ${e(post.date)}</p>`;
   const cards=list=>list.map(post=>`<article>${image(post)}<h3><a href="${link(post)}" data-blog-post>${e(post.title)}</a></h3>${meta(post)}</article>`).join('');
   const hero=(post,article)=>`<section class="blog-hero${article?' blog-hero-article':''}"><img src="${e(post.hero)}" alt="${e(post.title)}"><div class="blog-container"><div class="blog-hero-copy"><p class="blog-eyebrow">${article?e(post.category):'Featured Article'}</p><h1>${article?e(post.title):`<a href="${link(post)}" data-blog-post>${e(post.title)}</a>`}</h1><p class="blog-byline">Published by <strong>${e(post.author)}</strong> · ${e(post.date)}</p>${article?'':`<p class="blog-hero-excerpt">${e(post.excerpt)}</p>`}<div class="blog-share"><button type="button" data-blog-share aria-label="Share article">↗</button><button type="button" data-blog-share aria-label="Get article link">⧉</button></div></div></div></section>`;
-  document.querySelector('.blog-categories').innerHTML=navigation.map(group=>`<details><summary>${e(group.label)}</summary><div><a href="${e(group.href)}">All ${e(group.label)}</a>${group.children.filter(child=>child.href!==group.href).map(child=>`<a href="${e(child.href)}">${e(child.label)}</a>`).join('')}</div></details>`).join('');
+  document.querySelector('.blog-categories').innerHTML=navigation.map(group=>`<details><summary><span>${e(group.label)}</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div><a href="${e(group.href)}">All ${e(group.label)}</a>${group.children.filter(child=>child.href!==group.href).map(child=>`<a href="${e(child.href)}">${e(child.label)}</a>`).join('')}</div></details>`).join('');
   const path=location.pathname.replace(/\/$/,'');
   const slug=path.slice('/blog/'.length);
   const missing=title=>{document.title=`${title} | 500px Blog`;main.innerHTML=`<div class="blog-container blog-not-found"><h1>${title}</h1><p>This page is not part of the local Blog snapshot.</p><a href="/blog">Back to the Blog</a></div>`;};
@@ -712,13 +821,18 @@ async function renderBlog() {
   const toggle=document.querySelector('.blog-menu-toggle');
   toggle.addEventListener('click',()=>toggle.setAttribute('aria-expanded',String(toggle.getAttribute('aria-expanded')!=='true')));
   const details=all('.blog-header details');
-  details.forEach(item=>item.addEventListener('toggle',()=>{if(item.open)details.filter(other=>other!==item).forEach(other=>other.open=false);}));
+  details.forEach(item=>{
+    item.addEventListener('toggle',()=>{if(item.open)details.filter(other=>other!==item).forEach(other=>other.open=false);});
+    item.addEventListener('pointerenter',event=>{if(event.pointerType==='mouse'&&matchMedia('(hover: hover)').matches)item.open=true;});
+    item.addEventListener('pointerleave',event=>{if(event.pointerType==='mouse'&&!item.contains(document.activeElement))item.open=false;});
+  });
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=details.find(item=>item.open);details.forEach(item=>item.open=false);if(toggle.getAttribute('aria-expanded')==='true'){toggle.setAttribute('aria-expanded','false');toggle.focus();}else open?.querySelector('summary').focus();}});
 }
 
 document.addEventListener('click',event=>{handleClick(event).catch(reportError);});
 document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){
+    if(menu?.contains(document.activeElement))menuTrigger?.focus();
     closeMenu();
     const contents=document.querySelector('[data-licensing-toc][aria-expanded="true"]');
     if(contents&&!document.querySelector('dialog[open]')){contents.setAttribute('aria-expanded','false');contents.focus();}

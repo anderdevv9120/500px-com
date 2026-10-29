@@ -14,7 +14,8 @@ body[data-page="grants"] a { text-decoration: none; }
   .licensing-toc-toggle { display: flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--mui-palette-textPrimary-main); font: 600 19px/1.2 Poppins,sans-serif; letter-spacing: -.01em; }
   .licensing-toc-toggle svg { transition: transform .2s; }
   .licensing-toc-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
-  [data-licensing-navigation] nav { display: none; width: 100%; padding-top: 8px; }
-  [data-licensing-navigation]:has([aria-expanded="true"]) nav { display: flex; }
+  [data-licensing-navigation] nav { display: none; width: 100%; padding-top: 8px; opacity: 0; transform: translateY(-6px); transition: opacity .2s, transform .2s, display .2s allow-discrete; }
+  [data-licensing-navigation]:has([aria-expanded="true"]) nav { display: flex; opacity: 1; transform: none; }
+  @starting-style { [data-licensing-navigation]:has([aria-expanded="true"]) nav { opacity: 0; transform: translateY(-6px); } }
   body[data-page^="licensing"] main [id] { scroll-margin-top: 144px; }
 }

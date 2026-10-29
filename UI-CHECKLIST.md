@@ -5,6 +5,12 @@ Run `npm start`, then open http://localhost:5000. For fresh onboarding, clear th
 - [ ] Landing page shows eight original category photos on a dark background; Membership is absent.
 - [ ] Selecting categories updates the count; a fifth selection is refused; Continue opens the feed.
 - [ ] Inspiration opens a menu with For You, Fresh Picks, Editors' Choice, and Top Ranked.
+- [ ] Desktop header dropdowns open over the full label on hover, stay open while entering the menu, and close after leaving; switching labels replaces the menu.
+- [ ] Header chevrons rotate smoothly on open/close; one background block slides between navigation items and returns to the current section (or fades out); dropdown triggers stay cyan while browsing their menu, then reset on close.
+- [ ] Header, search type, Slideshow, and photo action menus fade/grow on opening and closing; exiting menus cannot receive clicks or keyboard focus.
+- [ ] Header Arrow Down opens and focuses the menu; arrows navigate, Escape restores trigger focus, and outside click dismisses it. Touch navigation still opens on tap.
+- [ ] Blog header dropdowns open on hover or click and animate both ways; mobile Blog navigation and Licensing Table of Contents animate on toggle. Reduced motion removes the animation.
+- [ ] Blog listing, articles, and categories retain the normal black site header, search, login, and desktop/mobile navigation above the light Blog content.
 - [ ] A photo opens a detail page with matching photography and a photographer panel.
 - [ ] Grid-size controls resize photos without overlap; browser resizing keeps the feed within the viewport.
 - [ ] Slideshow opens a photo viewer; arrows change photos; Escape closes it.
@@ -30,7 +36,9 @@ Run `npm start`, then open http://localhost:5000. For fresh onboarding, clear th
 - [ ] Get started and Photo/Licensing Manager links open demo login while signed out and upload while signed in.
 - [ ] The floating support control opens local guidance and Escape closes it.
 - [ ] Commercial Grants shows five original project mosaics and credits; project links scroll to their sections and update the active item.
-- [ ] Commercial Grants collection links open the corresponding live 500px galleries in a new tab.
+- [ ] Grant headings, descriptions, and mosaics reveal during normal scrolling; reduced motion and disabled JavaScript keep the content visible.
+- [ ] Grant project navigation stays below both mobile header rows; the current project remains visible in the horizontal navigation, and section links survive reload.
+- [ ] Commercial Grants collection links open the corresponding local gallery detail pages.
 - [ ] Photographer Works/Galleries/Quests tabs open their associated local content.
 - [ ] Leaderboard shows its animated photo strip, gold/silver/bronze rank medals, large thumbnails, descriptions, photographer credits, and engagement controls.
 - [ ] Weekly and Monthly show different captured titles, descriptions, and 50 correctly ordered rankings; switching back restores Weekly.
