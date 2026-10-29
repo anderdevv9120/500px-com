@@ -2,3 +2,4 @@ node_modules/
 .reference/
 screenshots/
 *.log
+_site/

@@ -12,6 +12,14 @@ npm start
 
 Open **http://localhost:5000**. Set `PORT` to use another port. The Node server only serves static files and maps the original-style URLs to HTML documents. It has no application API.
 
+## GitHub Pages
+
+In the repository's **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source. Push these changes to `main`, or run **Deploy to GitHub Pages** from the Actions tab after the workflow is pushed. The workflow exports and publishes `_site/` to **https://anderdevv9120.github.io/500px-com/**.
+
+Deploying the repository directly from a branch does not work: the captured pages use root-relative asset URLs, and their routes depend on the local Node server. `npm run export:pages` copies the public files, prefixes local URLs with `/500px-com`, and creates directory indexes for the captured routes and seeded photos, profiles, Quests, galleries, and Blog articles/categories. Assets, fragments, fonts, and PDFs are included; development tools and reference captures are excluded. The exported browser script also normalizes directory URLs so query filters and fixture lookups work after a refresh. The captured source files remain unchanged.
+
+The export requires Node.js 22 or newer and no dependencies. The workflow obtains the base path from GitHub Pages; for a manual export, set `PAGES_BASE_PATH` to a different path, or an empty string for a domain root. Arbitrary URLs outside the finite snapshot return the exported 404 page. `_site/` is generated and ignored by Git.
+
 ## Included
 
 - Category onboarding and For You, Fresh Picks, and Editors' Choice feeds.
@@ -64,4 +72,4 @@ Run `tools/blog-check.mjs` with the same external `PLAYWRIGHT_MODULE` to verify 
 npm run lint
 ```
 
-This performs JavaScript syntax checks; the project has no bundler or build step. Browser evidence is saved under `screenshots/` in this workspace. User-executable checks are in `UI-CHECKLIST.md`.
+This performs JavaScript syntax checks; local development needs no bundler or build step. GitHub Pages uses the static export described above. Browser evidence is saved under `screenshots/` in this workspace. User-executable checks are in `UI-CHECKLIST.md`.

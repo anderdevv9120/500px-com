@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvePage } from './routes.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 5000);
@@ -14,14 +15,7 @@ const server = http.createServer(async (request,response) => {
   try {
     const url = new URL(request.url,'http://localhost');
     const route = decodeURIComponent(url.pathname).replace(/\/$/, '') || '/';
-    let page = manifest[route];
-    if (['/popular','/fresh','/editors-picks','/upcoming','/discover'].includes(route)) page = manifest[route] || 'discover';
-    if (route.startsWith('/photo/')) page ||= 'photo-lines';
-    if (/^\/galler(?:y|ies)\/[^/]+$/.test(route)) page = 'gallery';
-    if (route.startsWith('/quest/')) page ||= licensingQuests.has(route) ? 'quest-licensing' : 'quest-mountains';
-    if (route.startsWith('/p/') || route.startsWith('/user/')) page ||= 'profile';
-    if (route.startsWith('/blog/')) page = 'blog';
-    if (['/login','/signup','/upload','/manager/works','/manager/licensing'].includes(route)) page = 'discover';
+    const page = resolvePage(route, manifest, licensingQuests);
     const filename = route === '/' ? 'index.html' : page ? `pages/${page}.html` : route.slice(1);
     const resolved = path.resolve(root, filename);
     const relative = path.relative(root,resolved);
