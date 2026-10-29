@@ -1582,7 +1582,7 @@ label[data-shrink="false"] + .MuiInputBase-formControl .css-achaci:focus::-webki
 }
 .css-19bvdf3 { aspect-ratio: 4 / 3; background-color: var(--mui-palette-fillGrey2-main); overflow: hidden; }
 .css-13a8o1u { display: block; height: 100%; object-fit: cover; transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1); width: 100%; }
-.css-ek0jn2 { display: flex; flex: 1 1 0%; flex-direction: column; gap: calc(2.5 * var(--mui-spacing)); padding-top: ; padding-right: ; padding-left: ; padding-bottom: calc(6.5 * var(--mui-spacing)); }
+.css-ek0jn2 { display: flex; flex: 1 1 0%; flex-direction: column; gap: calc(2.5 * var(--mui-spacing)); padding: calc(5.5 * var(--mui-spacing)); padding-bottom: calc(6.5 * var(--mui-spacing)); }
 .css-o5bd0q { margin: 0px; font-family: Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; color: var(--mui-palette-textPrimary-main); font-size: 18px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.35; }
 .css-1fl9e7o { margin: 0px; font-family: Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; font-weight: 400; color: var(--mui-palette-textTertiary-main); flex: 1 1 0%; font-size: 14px; line-height: 1.6; }
 .css-1soh9jp { -webkit-box-align: center; align-items: center; color: var(--mui-palette-textPrimary-main); display: inline-flex; gap: calc(1.75 * var(--mui-spacing)); margin-top: calc(1.5 * var(--mui-spacing)); }
