@@ -6,11 +6,13 @@ body { overflow-x: clip; }
 button, [role="button"], [role="tab"], [data-track-id="creator_avatar"], [data-track-id="share_btn"] { cursor: pointer; }
 :focus-visible { outline: 2px solid #b4eef0 !important; outline-offset: 4px; }
 header [data-header-navigation] > [data-header-highlight] { height: 40px; transition: transform .3s cubic-bezier(.4,.8,.3,1), width .3s cubic-bezier(.4,.8,.3,1), opacity .2s; }
+header [data-nav-item="More"] { display: flex; } /* reference hides it >=1280px, but it holds Upload / Guest uploads */
 header [data-header-chevron] { transition: transform .18s; }
 header [aria-expanded="true"] [data-header-chevron] { transform: rotate(180deg); }
 header [data-nav-item]:has([aria-expanded="true"]) a,
 header [data-nav-item] [aria-expanded="true"] { color: var(--mui-palette-brandCyan-main,#2b9cb3) !important; }
 header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-palette-brandCyan-main,#2b9cb3) !important; }
+:has(> .css-1loatah) { display: none !important; } /* captured infinite-scroll spinner; the clone never loads more */
 [data-masonry-outer] { width: 100% !important; overflow: visible !important; height: auto !important; }
 [data-masonry-host] { width: 100% !important; height: auto !important; }
 [data-masonry-grid] { width: 100% !important; max-height: none !important; overflow: visible !important; pointer-events: auto !important; }
@@ -82,10 +84,15 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; padding: 24px 0; }
 .local-grid a { color: white; text-decoration: none; }
 .local-grid img, .local-grid video { display: block; width: 100%; aspect-ratio: 1.45; object-fit: cover; background: #111; }
-.local-grid .gallery-photo { position: relative; margin: 0; }
-.local-grid .gallery-photo > button { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
-.local-grid .gallery-play-badge { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; background: #000a; color: #fff; display: grid; place-items: center; font-size: 13px; pointer-events: none; }
-.local-grid figcaption { padding: 10px 0 0; font-size: 12px; color: #aaa; }
+.gallery-photos { columns: 3; column-gap: 24px; }
+.local-profile-panel .gallery-photos { padding-top: 24px; }
+.gallery-photo { position: relative; margin: 0 0 24px; break-inside: avoid; }
+.gallery-photo > a, .gallery-photo > button { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
+.gallery-photo img, .gallery-photo video { display: block; width: 100%; height: auto; }
+.gallery-photo video { aspect-ratio: 16 / 9; object-fit: cover; background: #111; }
+.gallery-play-badge { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border-radius: 50%; background: #000a; color: #fff; display: grid; place-items: center; font-size: 13px; pointer-events: none; }
+.gallery-photo figcaption { padding: 10px 0 0; font-size: 12px; color: #aaa; }
+.gallery-photo figcaption strong { display: block; font-weight: 400; color: #f9f9f9; font-size: 14px; }
 .local-guest-avatar { width: 100%; height: 100%; border-radius: 50%; background: #242424; display: grid; place-items: center; font-weight: 600; }
 .local-grid p { margin: 10px 0 4px; }
 .local-grid small { color: #999; }
@@ -114,9 +121,15 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 [data-leaderboard-view] .row-thumb-container img { opacity: 1 !important; }
 [data-leaderboard-strip] { flex-shrink: 0; }
 .local-mobile-nav { display: none; }
+@media (min-width: 1280px) {
+  .local-grid.guest-wide { grid-template-columns: repeat(5,minmax(0,1fr)); }
+  .gallery-photos.guest-wide { columns: 5; }
+}
 @media (max-width: 900px) {
   .local-quest-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
   .local-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .gallery-photos { columns: 2; column-gap: 16px; }
+  .gallery-photo { margin-bottom: 20px; }
 }
 @media (max-width: 600px) {
   .local-quest-grid { grid-template-columns: minmax(0,1fr); }
@@ -125,6 +138,9 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
   .local-auth, .local-lightbox { padding: 0; }
   .local-toast { bottom: 16px; font-size: 12px; }
   .local-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .gallery-photos { column-gap: 10px; }
+  .gallery-photo { margin-bottom: 18px; }
+  .gallery-photo figcaption strong { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

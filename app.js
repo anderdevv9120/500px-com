@@ -639,7 +639,7 @@ async function renderGallery() {
     <div class="gallery-owner-row"><a class="gallery-owner" href="${ownerHref}">${lightboxMode?'<span class="gallery-avatar" aria-hidden="true">500px</span>':`<img class="gallery-avatar" src="${escapeHTML(profile.avatar)}" alt="">`}<span><small>Curated by</small><span data-gallery-owner>${escapeHTML(ownerName)}</span></span></a>${lightboxMode?'':`<button class="gallery-control gallery-follow" data-follow-owner="${ownerHref}" aria-pressed="${following}">${following?'Following':'Follow'}</button>`}</div>
     <p class="gallery-description">${escapeHTML(gallery.description)}</p></section>
     <div class="gallery-toolbar"><span class="gallery-count">${gallery.photos.length} ${isGuest?'items':'photos'}</span><div class="gallery-actions"><button class="gallery-control" data-gallery-action="slideshow" aria-label="Start slideshow">Slideshow</button><button class="gallery-control" data-gallery-action="share" aria-label="Share gallery">Share</button></div></div>
-    <div class="gallery-photos">${gallery.photos.map((photo,index)=>mediaFigure(photo,index,{lightbox:lightboxMode})).join('')}</div>`;
+    <div class="gallery-photos${isGuest?' guest-wide':''}">${gallery.photos.map((photo,index)=>mediaFigure(photo,index,{lightbox:lightboxMode})).join('')}</div>`;
 }
 
 async function renderGuestProfile() {
@@ -683,12 +683,15 @@ async function handleTab(button) {
     if(!panel){panel=document.createElement('div');panel.className='local-profile-panel';grid?.parentElement.append(panel);}
     if(isGuestProfile){
       if(grid)grid.hidden=true;panel.hidden=false;
-      const bar=document.querySelector('.MuiTabs-indicator');if(bar){bar.style.left=`${button.offsetLeft}px`;bar.style.width=`${button.offsetWidth}px`;}
+      const bar=document.querySelector('.MuiTabs-indicator');
+      // measure again once webfonts load: the fallback font gives tabs a different width/position
+      const placeBar=()=>{if(bar){bar.style.left=`${button.offsetLeft}px`;bar.style.width=`${button.offsetWidth}px`;}};
+      placeBar();document.fonts.ready.then(placeBar);
       const works=text.startsWith('Works');
       try{
         const list=await api(works?'api/media?limit=200':'api/albums');
         if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
-        panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':`<div class="local-grid">${works?galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join(''):list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<video src="${escapeHTML(album.cover.url)}" preload="metadata" muted></video>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`;
+        panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<video src="${escapeHTML(album.cover.url)}" preload="metadata" muted></video>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`);
         if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());
       }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
     }
@@ -750,7 +753,8 @@ async function handleClick(event) {
   if (target.closest('header')&&['Inspiration','Licensing','More','Toggle navigation'].includes(label)) {
     event.preventDefault();
     const items=label==='Inspiration'?[{label:'For You',href:'/discover'},{label:'Fresh Picks',href:'/fresh'},{label:"Editors' Choice",href:'/editors-picks'},{label:'Top Ranked',href:'/leaderboard'}]:label==='Licensing'?[{label:'About Licensing',href:'/licensing/licensing'},{label:'Become a Contributor',href:'/licensing/contribute'},{label:'Submission Requirements',href:'/licensing/requirements'},{label:'Content Types',href:'/licensing/content'},{label:'Content Distribution',href:'/licensing/distribution'},{label:'Commercial Grants',href:'/grants'}]:[{label:'Inspiration',href:'/discover'},{label:'Quests',href:'/quests'},{label:'Licensing',href:'/licensing'},{label:'vivo X500',href:'/vivo_image'},{label:'About Us',href:'/aboutus'},{label:'Blog',href:'/blog'},{label:'Download the app',href:'/download'},{label:'Upload',action:upload},{label:'Guest uploads',href:'/p/guest'}];
-    showMenu(button,items);return;
+    const inline=all('header [data-nav-item]').filter(item=>item.offsetWidth).map(item=>item.dataset.navItem.toLowerCase());
+    showMenu(button,items.filter(item=>!inline.includes(item.label.split(' ')[0].toLowerCase())));return;
   }
   if(target.closest('header')&&['Photos','Users','Galleries','Quests'].includes(text)){
     showMenu(button,['Photos','Users','Galleries','Quests'].map(type=>({label:type,action:()=>{button.childNodes[0].textContent=type;button.dataset.searchType=type.toLowerCase();}})));return;

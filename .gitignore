@@ -3,7 +3,7 @@ node_modules/
 screenshots/
 *.log
 _site/
-
+.env
 worker/node_modules/
 worker/.wrangler/
 worker/.dev.vars
