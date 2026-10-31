@@ -396,45 +396,80 @@ async function collect(photo) {
 }
 
 async function upload() {
-  const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><label for="upload-file">Choose files</label><input id="upload-file" type="file" accept="image/*,video/*" multiple><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><label for="upload-author">Your name (optional)</label><input id="upload-author" maxlength="40" placeholder="Guest"><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
+  const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><input id="upload-file" class="upload-input" type="file" accept="image/*,video/*" multiple><label for="upload-file" class="upload-pick">Choose files</label><p class="upload-summary" hidden><span></span><button type="button" class="upload-clear">Clear all</button></p><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><label for="upload-author">Your name (optional)</label><input id="upload-author" maxlength="40" placeholder="Guest"><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
   const form = dialog.querySelector('form'), list = dialog.querySelector('.upload-files'), msg = dialog.querySelector('.upload-msg'), submit = dialog.querySelector('[type="submit"]');
   const [newPane, existingPane] = all('[data-mode]', dialog), select = dialog.querySelector('#upload-album'), existingRadio = dialog.querySelector('[value="existing"]'), titleInput = dialog.querySelector('#upload-album-title');
+  const picker = dialog.querySelector('#upload-file'), summary = dialog.querySelector('.upload-summary'), clear = dialog.querySelector('.upload-clear');
   let items = [], blocked = false;
   const say = (text, bad) => { msg.textContent = text; msg.classList.toggle('bad', Boolean(bad)); };
-  const setStatus = (item, text, bad) => { item.status.textContent = text; item.row.classList.toggle('bad', Boolean(bad)); };
+  const setStatus = (item, text, bad) => { Object.assign(item, {text, bad}); item.status.textContent = text; item.row.classList.toggle('bad', Boolean(bad)); };
+  const icon = name => `<span class="upload-thumb-icon">${escapeHTML((name.match(/\.([^.]+)$/)?.[1] || 'file').slice(0, 4).toUpperCase())}</span>`;
+  const preview = item => item.error ? icon(item.file.name)
+    : item.file.type.startsWith('video/') ? `<video class="upload-thumb" src="${item.url}" muted preload="metadata" playsinline></video><span class="upload-play" aria-hidden="true">▶</span>`
+    : `<img class="upload-thumb" src="${item.url}" alt="">`;
+  const size = bytes => bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+  const lock = on => { picker.disabled = clear.disabled = on; all('.upload-remove', list).forEach(button => { button.disabled = on; }); };
+  const drop = gone => gone.forEach(item => item.url && URL.revokeObjectURL(item.url));
+  const render = () => {
+    list.innerHTML = items.map(item => `<li class="upload-row"><span class="upload-preview">${preview(item)}</span>${item.done ? '' : `<button type="button" class="upload-remove" aria-label="Remove ${escapeHTML(item.file.name)}">✕</button>`}<span class="upload-name" title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</span><span class="upload-size">${size(item.file.size)}</span><span class="upload-status"></span><progress max="1" value="0" hidden aria-label="Upload progress for ${escapeHTML(item.file.name)}"></progress></li>`).join('');
+    items.forEach((item, index) => {
+      Object.assign(item, {row: list.children[index], status: list.children[index].querySelector('.upload-status'), bar: list.children[index].querySelector('progress')});
+      setStatus(item, item.text, item.bad);
+      item.row.querySelector('img')?.addEventListener('error', event => { event.target.outerHTML = icon(item.file.name); });
+    });
+    summary.hidden = !items.length;
+    summary.firstChild.textContent = `${items.length} file${items.length === 1 ? '' : 's'} · ${size(items.reduce((sum, item) => sum + item.file.size, 0))}`;
+  };
+  list.addEventListener('click', event => {
+    const row = event.target.closest('.upload-remove')?.closest('.upload-row');
+    if (!row) return;
+    drop(items.splice([...list.children].indexOf(row), 1)); render();
+  });
+  clear.addEventListener('click', () => { drop(items); items = []; render(); });
+  dialog.addEventListener('close', () => drop(items));
   all('[name="album-mode"]', dialog).forEach(radio => radio.addEventListener('change', () => { const existing = existingRadio.checked; newPane.hidden = existing; existingPane.hidden = !existing; titleInput.required = !existing; }));
   api('api/albums').then(albums => {
     select.innerHTML = albums.map(album => `<option value="${escapeHTML(album.id)}">${escapeHTML(album.title)} (${album.count})</option>`).join('');
     existingRadio.disabled = !albums.length;
   }, error => { blocked = true; submit.disabled = true; existingRadio.disabled = true; say(error.message, true); });
-  dialog.querySelector('input[type="file"]').addEventListener('change', event => {
-    const files = [...event.target.files];
-    list.innerHTML = files.map(file => `<li class="upload-row"><span class="upload-name">${escapeHTML(file.name)}</span><span>${(file.size / 1048576).toFixed(1)} MB</span><span class="upload-status"></span><progress max="1" value="0" hidden></progress></li>`).join('');
-    items = files.map((file, index) => ({file, error: clientCheck(file), row: list.children[index], status: list.children[index].querySelector('.upload-status'), bar: list.children[index].querySelector('progress')}));
-    items.forEach(item => setStatus(item, item.error || 'Ready', item.error));
+  // each pick appends; the same name + size again is treated as the same file
+  picker.addEventListener('change', () => {
+    for (const file of picker.files) {
+      if (items.some(item => item.file.name === file.name && item.file.size === file.size)) continue;
+      const error = clientCheck(file);
+      items.push({file, error, url: error ? '' : URL.createObjectURL(file), text: error || 'Ready', bad: Boolean(error)});
+    }
+    picker.value = '';
+    render();
     submit.disabled = blocked; if (!blocked) say('');
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!form.reportValidity()) return;
-    const valid = items.filter(item => !item.error);
+    const pending = items.filter(item => !item.done), valid = pending.filter(item => !item.error);
     if (!valid.length) { say('Choose at least one supported photo or video.', true); return; }
-    submit.disabled = true; say('');
+    submit.disabled = true; say(''); lock(true);
     let albumId = select.value;
     try {
       if (!existingRadio.checked) albumId = (await api('api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
-    } catch (error) { say(error.message, true); submit.disabled = blocked; return; }
+    } catch (error) { say(error.message, true); submit.disabled = blocked; lock(false); return; }
     const author = dialog.querySelector('#upload-author').value.trim();
     let uploaded = 0;
     for (const item of valid) {
       item.bar.hidden = false; item.bar.value = 0; setStatus(item, 'Uploading…');
       try {
         await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), author}, fraction => { item.bar.value = fraction; });
-        uploaded++; setStatus(item, 'Uploaded');
+        uploaded++; item.done = true; setStatus(item, 'Uploaded');
       } catch (error) { setStatus(item, error.message, true); }
       item.bar.hidden = true;
     }
-    say(`${uploaded} uploaded, ${items.length - uploaded} failed`, uploaded < items.length);
+    render(); lock(false); submit.disabled = blocked;
+    // later batches go to the album this one created instead of making a second one
+    if (uploaded && !existingRadio.checked) {
+      if (![...select.options].some(option => option.value === albumId)) select.insertAdjacentHTML('afterbegin', `<option value="${escapeHTML(albumId)}">${escapeHTML(titleInput.value.trim())}</option>`);
+      select.value = albumId; existingRadio.disabled = false; existingRadio.checked = true; existingRadio.dispatchEvent(new Event('change'));
+    }
+    say(`${uploaded} uploaded, ${pending.length - uploaded} failed`, uploaded < pending.length);
     if (uploaded) { const link = document.createElement('a'); link.href = `/galleries/guest?album=${encodeURIComponent(albumId)}`; link.textContent = 'View album'; msg.append(' · ', link); }
   });
 }

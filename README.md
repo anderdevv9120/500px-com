@@ -72,7 +72,7 @@ Run `tools/blog-check.mjs` with the same external `PLAYWRIGHT_MODULE` to verify 
 
 ## Guest uploads (Cloudflare)
 
-Anyone can upload without an account. Upload creates a new album or adds to an existing one; albums appear under **Galleries** on `/p/guest` and at `/galleries/guest?album=<id>`, with photos and playable videos in the lightbox. The Worker in `worker/` stores files in R2 and album/media rows in D1. The site stays static, and seeded content never depends on the Worker: if it is down, only the upload dialog and guest pages show an error.
+Anyone can upload without an account. Each **Choose files** pick adds to a preview list of photos and videos, where files can be removed before uploading. Upload creates a new album or adds to an existing one, and later batches in the same dialog go to the album it just created; albums appear under **Galleries** on `/p/guest` and at `/galleries/guest?album=<id>`, with photos and playable videos in the lightbox. The Worker in `worker/` stores files in R2 and album/media rows in D1. The site stays static, and seeded content never depends on the Worker: if it is down, only the upload dialog and guest pages show an error.
 
 Limits, enforced by the Worker:
 

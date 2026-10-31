@@ -47,26 +47,62 @@ try {
   const dialog=page.locator('dialog[open]');
   await dialog.waitFor();
   assert.match(await dialog.textContent(),/Videos up to 95 MB \(temporary limit\)/);
-  await dialog.locator('input[type="file"]').setInputFiles(files);
+  // each pick appends; an exact repeat (same name and size) is skipped; ✕ removes a card
+  const picker=dialog.locator('input[type="file"]');
+  const extra={name:'extra.png',mimeType:'image/png',buffer:Buffer.from('extra')};
+  await picker.setInputFiles([files[0],files[2]]);
+  await picker.setInputFiles([files[1],files[3],files[0],extra]);
   const rows=dialog.locator('.upload-row');
+  assert.equal(await rows.count(),5);
+  await rows.filter({hasText:'extra.png'}).getByRole('button',{name:'Remove extra.png'}).click();
   assert.equal(await rows.count(),4);
+  assert.deepEqual(await rows.locator('.upload-name').allTextContents(),['photo.jpg','big.jpg','clip.mp4','photo.heic']);
   const status=await rows.locator('.upload-status').allTextContents();
   assert.equal(status[0],'Ready');
-  assert.equal(status[1],'Ready');
-  assert.match(status[2],/too large/i);
+  assert.match(status[1],/too large/i);
+  assert.equal(status[2],'Ready');
   assert.equal(status[3],"HEIC isn't supported — export as JPEG.");
+  // previews: photos and videos side by side, rejected files get a plain icon
+  assert.match(await rows.nth(0).locator('img.upload-thumb').getAttribute('src'),/^blob:/);
+  assert.match(await rows.nth(2).locator('video.upload-thumb').getAttribute('src'),/^blob:/);
+  assert.equal(await rows.nth(1).locator('.upload-thumb-icon').count(),1);
+  assert.equal(await rows.nth(3).locator('.upload-thumb-icon').count(),1);
+  assert.match(await dialog.locator('.upload-summary').textContent(),/^4 files · [\d.]+ MB/);
+  assert.match(await rows.nth(0).locator('.upload-size').textContent(),/^\d+ KB$/,'files under 1 MB show KB');
   await dialog.getByLabel('New album').check();
   await dialog.locator('#upload-album-title').fill('Check album');
+  // hold each PUT briefly so the locked state is observable
+  const isPut=url=>url.pathname.endsWith('/media');
+  await page.route(isPut,async route=>{await new Promise(r=>setTimeout(r,400));await route.continue();});
   await dialog.locator('form button[type="submit"]').click();
+  await dialog.locator('.upload-row .upload-status').getByText('Uploading…').waitFor();
+  assert.equal(await picker.isDisabled(),true,'picker must lock during upload');
+  assert.equal(await dialog.getByRole('button',{name:'Remove photo.jpg'}).isDisabled(),true,'remove must lock during upload');
+  assert.equal(await dialog.getByRole('button',{name:'Clear all'}).isDisabled(),true,'clear must lock during upload');
   await dialog.locator('.upload-msg').getByText('2 uploaded, 2 failed').waitFor({timeout:30000});
   assert.match(await dialog.locator('.upload-msg a:has-text("View album")').getAttribute('href'),/\/galleries\/guest\?album=/);
+  assert.equal(await picker.isDisabled(),false);
+  // uploaded cards can't be removed; the dialog now targets the album it just created
+  assert.equal(await dialog.getByRole('button',{name:'Remove photo.jpg'}).count(),0);
+  assert.equal(await dialog.getByLabel('Existing album').isChecked(),true);
+  const created=new URL(await dialog.locator('.upload-msg a').getAttribute('href'),origin).searchParams.get('album');
+  assert.equal(await dialog.locator('#upload-album').inputValue(),created);
+  // a second batch sends only the new file, into the same album
+  await rows.filter({hasText:'big.jpg'}).getByRole('button',{name:'Remove big.jpg'}).click();
+  await rows.filter({hasText:'photo.heic'}).getByRole('button',{name:'Remove photo.heic'}).click();
+  await picker.setInputFiles([{name:'second.jpg',mimeType:'image/jpeg',buffer:base}]);
+  await dialog.locator('form button[type="submit"]').click();
+  await dialog.locator('.upload-msg').getByText('1 uploaded, 0 failed').waitFor({timeout:30000});
+  await page.unroute(isPut);
 
   // EXIF is stripped before the bytes reach R2
   const albums=await (await fetch(api+'/api/albums')).json();
+  assert.equal(albums.filter(a=>a.title==='Check album').length,1,'second batch created a duplicate album');
   const album=albums.find(a=>a.title==='Check album');
-  assert.equal(album.count,2);
+  assert.equal(album.count,3);
+  assert.equal(album.id,created);
   const detail=await (await fetch(`${api}/api/albums/${album.id}`)).json();
-  const image=detail.media.find(m=>m.kind==='image');
+  const image=detail.media.find(m=>m.title==='photo');
   assert.equal(image.title,'photo');
   const bytes=Buffer.from(await (await fetch(image.url)).arrayBuffer());
   assert.ok(bytes.length>1000&&bytes[0]===0xFF&&bytes[1]===0xD8);
@@ -77,7 +113,7 @@ try {
   await page.goto(origin+'/upload',{waitUntil:'networkidle'});
   const reopened=page.locator('dialog[open]');
   await reopened.waitFor();
-  await reopened.locator('#upload-album option',{hasText:'Check album (2)'}).waitFor({state:'attached'});
+  await reopened.locator('#upload-album option',{hasText:'Check album (3)'}).waitFor({state:'attached'});
 
   // a failed album-list load stays visible after picking files, and submit stays disabled
   const broken=await context.newPage();
@@ -92,6 +128,9 @@ try {
   await brokenDialog.locator('.upload-row .upload-status').getByText('Ready').waitFor();
   assert.equal(await brokenDialog.locator('.upload-msg').textContent(),'Album list exploded');
   assert.equal(await brokenDialog.locator('form button[type="submit"]').isDisabled(),true);
+  await brokenDialog.getByRole('button',{name:'Clear all'}).click();
+  assert.equal(await brokenDialog.locator('.upload-row').count(),0);
+  assert.equal(await brokenDialog.locator('.upload-msg').textContent(),'Album list exploded');
   assert.deepEqual(errors,[]);
   console.log('upload dialog ok');
 
