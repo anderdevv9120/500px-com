@@ -4,6 +4,7 @@
 //   WRANGLER_DISABLE_REQUEST_BODY_DRAINING=1 npx wrangler dev --port 8787 --persist-to "$TMP"
 // then: PLAYWRIGHT_MODULE=<path to playwright-core/index.mjs> node tools/uploads-check.mjs
 import assert from 'node:assert/strict';
+import {execSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
@@ -149,6 +150,64 @@ try {
   assert.equal(await guest.locator('.gallery-follow').count(),1);
   assert.deepEqual(errors,[]);
   console.log('guest gallery ok');
+
+  // guest profile
+  const prof=await context.newPage();
+  prof.on('pageerror',error=>errors.push(error.message));
+  prof.on('dialog',d=>{errors.push('alert: '+d.message());d.dismiss();});
+  const visible=(p,text,exact)=>p.getByText(text,{exact}).filter({visible:true});
+  await prof.goto(origin+'/p/guest',{waitUntil:'networkidle'});
+  await visible(prof,'Guest uploads',true).first().waitFor();
+  assert.equal(await prof.title(),'Guest uploads | 500px');
+  assert.equal(await visible(prof,'Marco Grassi').count(),0);
+  assert.equal(await prof.locator('[role="tab"][aria-selected="true"]').textContent(),'Galleries');
+  assert.equal(await visible(prof,'Quests').count(),0);
+  const card=prof.locator(`.local-collection-card[href$="album=${seeded.id}"]`);
+  await card.waitFor();
+  assert.equal(await card.locator('span').textContent(),title);
+  assert.equal(await prof.locator('img[src="x"]').count(),0);
+  await card.click();
+  await prof.locator('[data-gallery] h1').waitFor();
+  assert.equal(await prof.locator('[data-gallery] h1').textContent(),title);
+  await prof.goto(origin+'/p/guest',{waitUntil:'networkidle'});
+  await prof.locator('[role="tab"]',{hasText:'Works'}).click();
+  const cells=prof.locator('.local-profile-panel .gallery-photo');
+  await cells.first().waitFor();
+  assert.ok(await cells.count()>=2);
+  assert.ok(await cells.locator('video').count()>=1);
+  await cells.filter({has:prof.locator('video')}).first().locator('button').click();
+  await prof.locator('.local-lightbox video[controls]').waitFor();
+  await prof.keyboard.press('Escape');
+  await prof.goto(origin+'/discover',{waitUntil:'networkidle'});
+  await prof.locator('header button[aria-label="Toggle navigation"]').click(); // logged out, the visible entry to the More items
+  assert.equal(await prof.locator('.local-menu a',{hasText:'Guest uploads'}).getAttribute('href'),'/p/guest');
+  await prof.goto(origin+'/p/MarcoGrassi',{waitUntil:'networkidle'});
+  assert.equal(await visible(prof,'Marco Grassi',true).count()>=1,true);
+  assert.equal(await prof.locator('[role="tab"][aria-selected="true"]').textContent(),'Works(353)');
+  assert.equal(await prof.locator('.local-profile-panel').count(),0);
+  // no albums yet: empty state with an Upload button
+  const empty=await context.newPage();
+  empty.on('pageerror',error=>errors.push(error.message));
+  await empty.route(url=>url.pathname==='/api/albums',route=>route.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'[]'}));
+  await empty.goto(origin+'/p/guest',{waitUntil:'networkidle'});
+  await empty.getByText('No guest uploads yet.').waitFor();
+  await empty.locator('.local-profile-panel button',{hasText:'Upload'}).click();
+  await empty.locator('dialog[open]').waitFor();
+  // API outage: seeded pages still render, guest UI says so
+  const down=await context.newPage();
+  down.on('pageerror',error=>errors.push(error.message));
+  await down.route(api+'/**',route=>route.abort());
+  await down.goto(origin+'/p/guest',{waitUntil:'networkidle'});
+  await down.getByText('Guest uploads are unavailable right now.').waitFor();
+  await down.goto(origin+'/discover',{waitUntil:'networkidle'});
+  assert.ok(await down.locator('[data-photo-card]').count()>0);
+  await down.goto(origin+'/upload',{waitUntil:'networkidle'});
+  await down.locator('dialog[open]').getByText('Uploads are unavailable right now').first().waitFor();
+  assert.deepEqual(errors,[]);
+  // static export includes the guest routes
+  execSync('npm run export:pages',{env:{...process.env,PAGES_BASE_PATH:'/500px-com'},stdio:'pipe'});
+  for(const route of ['p/guest','galleries/guest'])await fs.access(`_site/${route}/index.html`);
+  console.log('guest profile ok');
 } finally {
   await browser.close();
 }

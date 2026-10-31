@@ -26,7 +26,7 @@ const catalog = JSON.parse(sources.get('catalog.json'));
 const galleries = JSON.parse(sources.get('pages/galleries.json'));
 const blog = JSON.parse(sources.get('pages/blog-posts.json'));
 const licensingQuests = new Set(catalog.quests.filter(quest => quest.type === 'LICENSING').map(quest => quest.href));
-const routes = new Set([...Object.keys(manifest), '/popular', '/upcoming', '/login', '/signup', '/upload', '/manager/works', '/manager/licensing']);
+const routes = new Set([...Object.keys(manifest), '/popular', '/upcoming', '/login', '/signup', '/upload', '/manager/works', '/manager/licensing', '/p/guest', '/galleries/guest']);
 for (const text of sources.values()) {
   for (const [, value] of text.matchAll(/["'`(](\/(?!\/)[^"'`<>\s)]+)/g)) {
     const route = value.split(/[?#]/)[0].replace(/\/+$/, '') || '/';

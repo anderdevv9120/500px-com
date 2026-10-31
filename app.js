@@ -14,6 +14,7 @@ const catalogPromise = fetch('/catalog.json?v=quest-licensing-1').then(response 
 let galleriesPromise;
 const galleries = () => galleriesPromise ||= fetch('/pages/galleries.json').then(response => { if (!response.ok) throw Error('Galleries unavailable'); return response.json(); });
 let galleryPhotos = [];
+const isGuestProfile = pageName.startsWith('profile') && location.pathname.replace(/\/$/, '').endsWith('/p/guest');
 let menu;
 let menuTrigger;
 let menuCloseTimer;
@@ -605,6 +606,19 @@ async function renderGallery() {
     <div class="gallery-photos">${gallery.photos.map((photo,index)=>mediaFigure(photo,index,{lightbox:lightboxMode})).join('')}</div>`;
 }
 
+async function renderGuestProfile() {
+  document.title='Guest uploads | 500px';
+  const name=all('span').find(span=>!span.children.length&&span.textContent.trim()==='Marco Grassi');
+  name.textContent='Guest uploads';
+  // captured markup: name > name row > name+location block > header row > info column
+  const info=name.parentElement.parentElement.parentElement.parentElement;
+  [name.parentElement.nextElementSibling,name.parentElement.parentElement.nextElementSibling,...[...info.children].slice(1)].forEach(el=>{if(el)el.hidden=true;});
+  document.querySelector('.profile-avatar > div').innerHTML='<span class="local-guest-avatar" aria-hidden="true">500px</span>';
+  const tabs=all('[role="tab"]');
+  tabs.forEach(tab=>{if(tab.textContent.trim().startsWith('Quests'))tab.hidden=true;else tab.querySelector('span').textContent=tab.textContent.trim().replace(/\(\d+\)$/,'');});
+  await handleTab(tabs.find(tab=>tab.textContent.trim()==='Galleries'));
+}
+
 async function handleTab(button) {
   const list=button.closest('[role="tablist"]');
   if (!list) return;
@@ -631,7 +645,18 @@ async function handleTab(button) {
     const grid=document.querySelector('[data-masonry-outer]');
     let panel=document.querySelector('.local-profile-panel');
     if(!panel){panel=document.createElement('div');panel.className='local-profile-panel';grid?.parentElement.append(panel);}
-    if(text.startsWith('Works')){if(grid)grid.hidden=false;panel.hidden=true;layoutGrids();}
+    if(isGuestProfile){
+      if(grid)grid.hidden=true;panel.hidden=false;
+      const bar=document.querySelector('.MuiTabs-indicator');if(bar){bar.style.left=`${button.offsetLeft}px`;bar.style.width=`${button.offsetWidth}px`;}
+      const works=text.startsWith('Works');
+      try{
+        const list=await api(works?'/api/media?limit=200':'/api/albums');
+        if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
+        panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':`<div class="local-grid">${works?galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join(''):list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<video src="${escapeHTML(album.cover.url)}" preload="metadata" muted></video>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`;
+        panel.querySelector('button')?.addEventListener('click',()=>upload());
+      }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
+    }
+    else if(text.startsWith('Works')){if(grid)grid.hidden=false;panel.hidden=true;layoutGrids();}
     else if(text.startsWith('Galleries')){
       if(grid)grid.hidden=true;panel.hidden=false;
       const owner=pageName==='profile-pawel'?'paweluchorczak':'MarcoGrassi';
@@ -688,7 +713,7 @@ async function handleClick(event) {
   }
   if (target.closest('header')&&['Inspiration','Licensing','More','Toggle navigation'].includes(label)) {
     event.preventDefault();
-    const items=label==='Inspiration'?[{label:'For You',href:'/discover'},{label:'Fresh Picks',href:'/fresh'},{label:"Editors' Choice",href:'/editors-picks'},{label:'Top Ranked',href:'/leaderboard'}]:label==='Licensing'?[{label:'About Licensing',href:'/licensing/licensing'},{label:'Become a Contributor',href:'/licensing/contribute'},{label:'Submission Requirements',href:'/licensing/requirements'},{label:'Content Types',href:'/licensing/content'},{label:'Content Distribution',href:'/licensing/distribution'},{label:'Commercial Grants',href:'/grants'}]:[{label:'Inspiration',href:'/discover'},{label:'Quests',href:'/quests'},{label:'Licensing',href:'/licensing'},{label:'vivo X500',href:'/vivo_image'},{label:'About Us',href:'/aboutus'},{label:'Blog',href:'/blog'},{label:'Download the app',href:'/download'},{label:'Upload',action:upload}];
+    const items=label==='Inspiration'?[{label:'For You',href:'/discover'},{label:'Fresh Picks',href:'/fresh'},{label:"Editors' Choice",href:'/editors-picks'},{label:'Top Ranked',href:'/leaderboard'}]:label==='Licensing'?[{label:'About Licensing',href:'/licensing/licensing'},{label:'Become a Contributor',href:'/licensing/contribute'},{label:'Submission Requirements',href:'/licensing/requirements'},{label:'Content Types',href:'/licensing/content'},{label:'Content Distribution',href:'/licensing/distribution'},{label:'Commercial Grants',href:'/grants'}]:[{label:'Inspiration',href:'/discover'},{label:'Quests',href:'/quests'},{label:'Licensing',href:'/licensing'},{label:'vivo X500',href:'/vivo_image'},{label:'About Us',href:'/aboutus'},{label:'Blog',href:'/blog'},{label:'Download the app',href:'/download'},{label:'Upload',action:upload},{label:'Guest uploads',href:'/p/guest'}];
     showMenu(button,items);return;
   }
   if(target.closest('header')&&['Photos','Users','Galleries','Quests'].includes(text)){
@@ -789,7 +814,8 @@ async function initialize() {
   layoutGrids();
   if(pageName==='gallery')await renderGallery();
   if(pageName==='quest-licensing')await renderLicensingQuest();
-  if(pageName.startsWith('profile')&&new URLSearchParams(location.search).get('view')==='galleries'){
+  if(isGuestProfile)await renderGuestProfile();
+  else if(pageName.startsWith('profile')&&new URLSearchParams(location.search).get('view')==='galleries'){
     const tab=all('[role="tab"]').find(tab=>tab.textContent.trim().startsWith('Galleries'));
     if(tab)await handleTab(tab);
   }
