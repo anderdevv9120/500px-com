@@ -39,6 +39,7 @@ const files=[
 
 try {
   const context=await browser.newContext({viewport:{width:1024,height:900}});
+  await context.addInitScript(api=>{try{localStorage.uploadApi=api}catch{}},api); // never upload to production
   const page=await context.newPage();
   page.on('pageerror',error=>errors.push(error.message));
 
@@ -75,15 +76,16 @@ try {
   const isPut=url=>url.pathname.endsWith('/media');
   await page.route(isPut,async route=>{await new Promise(r=>setTimeout(r,400));await route.continue();});
   await dialog.locator('form button[type="submit"]').click();
-  await dialog.locator('.upload-row .upload-status').getByText('Uploading…').waitFor();
+  // both valid files upload in parallel (pool of 3)
+  await page.waitForFunction(()=>[...document.querySelectorAll('dialog[open] .upload-status')].filter(s=>s.textContent==='Uploading…').length===2);
   assert.equal(await picker.isDisabled(),true,'picker must lock during upload');
   assert.equal(await dialog.getByRole('button',{name:'Remove photo.jpg'}).isDisabled(),true,'remove must lock during upload');
   assert.equal(await dialog.getByRole('button',{name:'Clear all'}).isDisabled(),true,'clear must lock during upload');
   await dialog.locator('.upload-msg').getByText('2 uploaded, 2 failed').waitFor({timeout:30000});
   assert.match(await dialog.locator('.upload-msg a:has-text("View album")').getAttribute('href'),/\/galleries\/guest\?album=/);
   assert.equal(await picker.isDisabled(),false);
-  // uploaded cards can't be removed; the dialog now targets the album it just created
-  assert.equal(await dialog.getByRole('button',{name:'Remove photo.jpg'}).count(),0);
+  // uploaded files leave the list; failures stay and the dialog now targets the album it just created
+  assert.deepEqual(await rows.locator('.upload-name').allTextContents(),['big.jpg','photo.heic']);
   assert.equal(await dialog.getByLabel('Existing album').isChecked(),true);
   const created=new URL(await dialog.locator('.upload-msg a').getAttribute('href'),origin).searchParams.get('album');
   assert.equal(await dialog.locator('#upload-album').inputValue(),created);
@@ -93,6 +95,10 @@ try {
   await picker.setInputFiles([{name:'second.jpg',mimeType:'image/jpeg',buffer:base}]);
   await dialog.locator('form button[type="submit"]').click();
   await dialog.locator('.upload-msg').getByText('1 uploaded, 0 failed').waitFor({timeout:30000});
+  // a clean batch clears the form
+  assert.equal(await rows.count(),0,'uploaded files must leave the list');
+  assert.equal(await dialog.getByLabel('New album').isChecked(),true,'form must reset after a clean upload');
+  assert.equal(await dialog.locator('#upload-author').inputValue(),'');
   await page.unroute(isPut);
 
   // EXIF is stripped before the bytes reach R2
@@ -105,9 +111,17 @@ try {
   const image=detail.media.find(m=>m.title==='photo');
   assert.equal(image.title,'photo');
   const bytes=Buffer.from(await (await fetch(image.url)).arrayBuffer());
-  assert.ok(bytes.length>1000&&bytes[0]===0xFF&&bytes[1]===0xD8);
   assert.ok(!bytes.includes('GPSMARKER'),'GPSMARKER survived upload');
-  assert.equal(orientationOf(bytes),6,'EXIF orientation lost');
+  if (image.contentType === 'image/webp') {
+    assert.equal(bytes.toString('ascii',8,12),'WEBP');
+    const dimensions=await page.evaluate(async url=>{const image=await createImageBitmap(await (await fetch(url)).blob());const size=[image.width,image.height];image.close();return size;},image.url);
+    const original=await page.evaluate(async bytes=>{const image=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/jpeg'}));const size=[image.width,image.height];image.close();return size;},[...jpeg]);
+    assert.deepEqual(dimensions,original,'converted portrait dimensions changed');
+    assert.ok(bytes.length<jpeg.length,'WebP must save bytes');
+  } else {
+    assert.ok(bytes.length>1000&&bytes[0]===0xFF&&bytes[1]===0xD8);
+    assert.equal(orientationOf(bytes),6,'EXIF orientation lost');
+  }
 
   // reopening lists the new album
   await page.goto(origin+'/upload',{waitUntil:'networkidle'});

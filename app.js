@@ -27,7 +27,8 @@ let gridSize = 'small';
 let leaderboardRequest = 0;
 const questParams = new URLSearchParams(location.search);
 
-const uploadApi = ['localhost','127.0.0.1'].includes(location.hostname) ? 'http://127.0.0.1:8787' : 'https://500px-guest-uploads.lamdan0901.workers.dev';
+// Deployed Worker everywhere; opt into `wrangler dev` with localStorage.uploadApi = 'http://127.0.0.1:8787'.
+const uploadApi = (() => { try { return localStorage.uploadApi; } catch {} })() || 'https://500px-guest-uploads.lamdan0901.workers.dev';
 const uploadLimits = {'image/jpeg':20,'image/png':20,'image/webp':20,'image/gif':20,'image/avif':20,'video/mp4':95,'video/webm':95,'video/quicktime':95};
 const uploadDown = 'Uploads are unavailable right now';
 
@@ -77,11 +78,25 @@ function stripJpegExif(buffer) {
 }
 
 async function putMedia(albumId, file, {title, author}, onProgress) {
-  const body = file.type === 'image/jpeg' ? stripJpegExif(await file.arrayBuffer()) : file;
+  let body = file.type === 'image/jpeg' ? new Blob([stripJpegExif(await file.arrayBuffer())], {type:file.type}) : file;
+  if (file.type === 'image/jpeg' || file.type === 'image/png') {
+    const bitmap = await createImageBitmap(body), canvas = document.createElement('canvas');
+    try {
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const context = canvas.getContext('2d');
+      if (!context) throw Error('Could not prepare this image.');
+      context.drawImage(bitmap, 0, 0);
+      const webp = await new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(Error('Could not convert this image to WebP.')), 'image/webp', 0.9));
+      // Unsupported encoders return PNG; keep the original format unless WebP saves bytes.
+      if (webp.type === 'image/webp' && webp.size < body.size) body = webp;
+    } finally {
+      bitmap.close(); canvas.width = canvas.height = 0;
+    }
+  }
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title, author})}`);
-    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.setRequestHeader('Content-Type', body.type);
     xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
     xhr.onerror = () => reject(Error(uploadDown));
     xhr.onload = () => {
@@ -332,17 +347,18 @@ function toggleStored(list, key, element, className) {
 }
 
 function layoutGrids() {
-  all('[data-masonry-grid]').forEach(grid => {
-    const width = grid.parentElement.getBoundingClientRect().width;
+  all('[data-masonry-grid], .gallery-photos.guest-wide').forEach(grid => {
+    const guest = grid.matches('.gallery-photos.guest-wide');
+    const width = (guest ? grid : grid.parentElement).getBoundingClientRect().width;
     const gap = width < 650 ? 8 : 24;
     const columns = gridSize === 'large' ? (width < 700 ? 1 : width < 1300 ? 2 : 3) : (width < 650 ? 2 : width < 1000 ? 3 : width < 1450 ? 4 : 5);
     const columnWidth = (width - gap * (columns-1)) / columns;
     const heights = Array(columns).fill(0);
-    all(':scope > [data-masonry-item]',grid).filter(el => !el.hidden).forEach(wrapper => {
+    all(guest ? ':scope > .gallery-photo' : ':scope > [data-masonry-item]',grid).filter(el => !el.hidden).forEach(wrapper => {
       const column = heights.indexOf(Math.min(...heights));
       const height = columnWidth / (Number(wrapper.dataset.ratio) || 1.5);
-      Object.assign(wrapper.style,{position:'absolute',width:`${columnWidth}px`,height:`${height}px`,left:`${column*(columnWidth+gap)}px`,top:`${heights[column]}px`,transform:'none'});
-      heights[column] += height + gap;
+      Object.assign(wrapper.style,{position:'absolute',width:`${columnWidth}px`,height:guest?'auto':`${height}px`,left:`${column*(columnWidth+gap)}px`,top:`${heights[column]}px`,transform:'none'});
+      heights[column] += (guest ? wrapper.getBoundingClientRect().height : height) + gap;
     });
     grid.style.height = `${Math.max(0,...heights)}px`;
     grid.style.maxHeight = 'none';
@@ -411,7 +427,7 @@ async function upload() {
   const lock = on => { picker.disabled = clear.disabled = on; all('.upload-remove', list).forEach(button => { button.disabled = on; }); };
   const drop = gone => gone.forEach(item => item.url && URL.revokeObjectURL(item.url));
   const render = () => {
-    list.innerHTML = items.map(item => `<li class="upload-row"><span class="upload-preview">${preview(item)}</span>${item.done ? '' : `<button type="button" class="upload-remove" aria-label="Remove ${escapeHTML(item.file.name)}">✕</button>`}<span class="upload-name" title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</span><span class="upload-size">${size(item.file.size)}</span><span class="upload-status"></span><progress max="1" value="0" hidden aria-label="Upload progress for ${escapeHTML(item.file.name)}"></progress></li>`).join('');
+    list.innerHTML = items.map(item => `<li class="upload-row"><span class="upload-preview">${preview(item)}</span><button type="button" class="upload-remove" aria-label="Remove ${escapeHTML(item.file.name)}">✕</button><span class="upload-name" title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</span><span class="upload-size">${size(item.file.size)}</span><span class="upload-status"></span><progress max="1" value="0" hidden aria-label="Upload progress for ${escapeHTML(item.file.name)}"></progress></li>`).join('');
     items.forEach((item, index) => {
       Object.assign(item, {row: list.children[index], status: list.children[index].querySelector('.upload-status'), bar: list.children[index].querySelector('progress')});
       setStatus(item, item.text, item.bad);
@@ -446,7 +462,7 @@ async function upload() {
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!form.reportValidity()) return;
-    const pending = items.filter(item => !item.done), valid = pending.filter(item => !item.error);
+    const pending = items, valid = pending.filter(item => !item.error);
     if (!valid.length) { say('Choose at least one supported photo or video.', true); return; }
     submit.disabled = true; say(''); lock(true);
     let albumId = select.value;
@@ -454,20 +470,29 @@ async function upload() {
       if (!existingRadio.checked) albumId = (await api('api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
     } catch (error) { say(error.message, true); submit.disabled = blocked; lock(false); return; }
     const author = dialog.querySelector('#upload-author').value.trim();
-    let uploaded = 0;
-    for (const item of valid) {
-      item.bar.hidden = false; item.bar.value = 0; setStatus(item, 'Uploading…');
-      try {
-        await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), author}, fraction => { item.bar.value = fraction; });
-        uploaded++; item.done = true; setStatus(item, 'Uploaded');
-      } catch (error) { setStatus(item, error.message, true); }
-      item.bar.hidden = true;
-    }
+    let uploaded = 0, next = 0;
+    // 3 workers pull from a shared queue, so at most 3 uploads are in flight
+    const worker = async () => {
+      while (next < valid.length) {
+        const item = valid[next++];
+        item.bar.hidden = false; item.bar.value = 0; setStatus(item, 'Uploading…');
+        try {
+          await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), author}, fraction => { item.bar.value = fraction; });
+          uploaded++; item.done = true; setStatus(item, 'Uploaded');
+        } catch (error) { setStatus(item, error.message, true); }
+        item.bar.hidden = true;
+      }
+    };
+    await Promise.all(Array.from({length: 3}, worker));
+    drop(items.filter(item => item.done)); items = items.filter(item => !item.done);
     render(); lock(false); submit.disabled = blocked;
-    // later batches go to the album this one created instead of making a second one
-    if (uploaded && !existingRadio.checked) {
-      if (![...select.options].some(option => option.value === albumId)) select.insertAdjacentHTML('afterbegin', `<option value="${escapeHTML(albumId)}">${escapeHTML(titleInput.value.trim())}</option>`);
-      select.value = albumId; existingRadio.disabled = false; existingRadio.checked = true; existingRadio.dispatchEvent(new Event('change'));
+    if (uploaded) {
+      if (!existingRadio.checked && ![...select.options].some(option => option.value === albumId)) select.insertAdjacentHTML('afterbegin', `<option value="${escapeHTML(albumId)}">${escapeHTML(titleInput.value.trim())}</option>`);
+      existingRadio.disabled = false;
+      if (uploaded === pending.length) form.reset();
+      // leftovers retry into the same album instead of making a second one
+      else { select.value = albumId; existingRadio.checked = true; }
+      existingRadio.dispatchEvent(new Event('change'));
     }
     say(`${uploaded} uploaded, ${pending.length - uploaded} failed`, uploaded < pending.length);
     if (uploaded) { const link = document.createElement('a'); link.href = `/galleries/guest?album=${encodeURIComponent(albumId)}`; link.textContent = 'View album'; msg.append(' · ', link); }
@@ -598,8 +623,9 @@ async function renderLicensingQuest() {
     <div role="tabpanel" id="licensing-entries" aria-labelledby="licensing-tab-1" data-quest-entries tabindex="0" hidden></div></div>`;
 }
 
+const videoPlayBadge = '<span class="gallery-play-badge" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 3v18l15-9z"/></svg></span>';
 function mediaFigure(item, index, {lightbox}) {
-  const title = escapeHTML(item.title), media = item.kind === 'video' ? `<video src="${escapeHTML(item.src)}" preload="metadata" muted playsinline></video><span class="gallery-play-badge" aria-hidden="true">▶</span>` : `<img src="${escapeHTML(item.src)}" alt="${title}" ${index>5?'loading="lazy"':''}>`;
+  const title = escapeHTML(item.title), media = item.kind === 'video' ? `<video src="${escapeHTML(item.src)}" preload="metadata" muted playsinline></video>${videoPlayBadge}` : `<img src="${escapeHTML(item.src)}" alt="${title}" ${index>5?'loading="lazy"':''}>`;
   return `<figure class="gallery-photo">${lightbox?`<button data-gallery-photo="${index}" aria-label="View ${title}">${media}</button>`:`<a data-gallery-photo="${index}" href="${escapeHTML(item.href)}">${media}</a>`}<figcaption>${lightbox?'':`<strong>${title}</strong>`}${escapeHTML(item.author)}</figcaption></figure>`;
 }
 
@@ -640,6 +666,7 @@ async function renderGallery() {
     <p class="gallery-description">${escapeHTML(gallery.description)}</p></section>
     <div class="gallery-toolbar"><span class="gallery-count">${gallery.photos.length} ${isGuest?'items':'photos'}</span><div class="gallery-actions"><button class="gallery-control" data-gallery-action="slideshow" aria-label="Start slideshow">Slideshow</button><button class="gallery-control" data-gallery-action="share" aria-label="Share gallery">Share</button></div></div>
     <div class="gallery-photos${isGuest?' guest-wide':''}">${gallery.photos.map((photo,index)=>mediaFigure(photo,index,{lightbox:lightboxMode})).join('')}</div>`;
+  if(isGuest)layoutGrids();
 }
 
 async function renderGuestProfile() {
@@ -652,7 +679,8 @@ async function renderGuestProfile() {
   document.querySelector('.profile-avatar > div').innerHTML='<span class="local-guest-avatar" aria-hidden="true">500px</span>';
   const tabs=all('[role="tab"]');
   tabs.forEach(tab=>{if(tab.textContent.trim().startsWith('Quests'))tab.hidden=true;else tab.querySelector('span').textContent=tab.textContent.trim().replace(/\(\d+\)$/,'');});
-  await handleTab(tabs.find(tab=>tab.textContent.trim()==='Galleries'));
+  const view=new URLSearchParams(location.search).get('view')==='works'?'Works':'Galleries';
+  await handleTab(tabs.find(tab=>tab.textContent.trim()===view));
 }
 
 async function handleTab(button) {
@@ -688,10 +716,14 @@ async function handleTab(button) {
       const placeBar=()=>{if(bar){bar.style.left=`${button.offsetLeft}px`;bar.style.width=`${button.offsetWidth}px`;}};
       placeBar();document.fonts.ready.then(placeBar);
       const works=text.startsWith('Works');
+      const url=new URL(location.href);
+      url.searchParams.set('view',works?'works':'galleries');
+      history.replaceState(history.state,'',url);
       try{
         const list=await api(works?'api/media?limit=200':'api/albums');
         if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
-        panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<video src="${escapeHTML(album.cover.url)}" preload="metadata" muted></video>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`);
+        panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(album.cover.url)}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`);
+        if(works)layoutGrids();
         if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());
       }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
     }
@@ -776,7 +808,11 @@ async function handleClick(event) {
     return;
   }
   if(track==='share_btn'||label==='share'){event.preventDefault();await share();return;}
-  if(label==='large grid'||label==='small grid'){gridSize=label.split(' ')[0];all('button[aria-label$="grid"]').forEach(b=>b.classList.toggle('local-active',b===button));layoutGrids();return;}
+  if(['large grid','small grid','Fewer columns','More columns'].includes(label)){
+    gridSize=label==='large grid'||label==='Fewer columns'?'large':'small';
+    all('button[aria-label$="grid"], button[aria-label$="columns"]').forEach(b=>{b.classList.toggle('local-active',b===button);b.setAttribute('aria-pressed',String(b===button));});
+    layoutGrids();return;
+  }
   if(text==='Slideshow'){showMenu(button,[{label:'Start slideshow',action:()=>lightbox(0,true)},{label:'View full screen',action:()=>lightbox()}]);return;}
   if(['For You','Fresh'].includes(text)&&button?.getAttribute('role')==='button'){location.assign(text==='Fresh'?'/fresh':'/discover');return;}
   const photoCard=target.closest('[data-photo-card]');
@@ -823,6 +859,11 @@ function sortSearch(reverse) {
 }
 
 async function initialize() {
+  if(isGuestProfile || pageName==='gallery') {
+    window.addEventListener('resize',layoutGrids);
+    document.addEventListener('load',event=>{if(event.target.matches('.gallery-photos.guest-wide img'))layoutGrids();},true);
+    document.fonts.ready.then(layoutGrids);
+  }
   all('header a[href="/"]').forEach(a=>a.setAttribute('aria-label',a.textContent.trim()||'500px home'));
   all('.ReactVirtualized__Grid__innerScrollContainer').filter(grid=>grid.querySelector('[data-photo-card]')).forEach(grid=>{
     const cards=all('[data-photo-card]',grid);

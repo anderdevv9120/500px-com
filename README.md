@@ -82,11 +82,13 @@ Limits, enforced by the Worker:
 - Album title 1–60 characters, description ≤ 280, author ≤ 40 (default "Guest"), media title ≤ 100 (defaults to the file name).
 - CORS is limited to `ALLOWED_ORIGINS` (GitHub Pages plus localhost:5000).
 
-**Known limitation:** JPEG location data (EXIF/GPS) is stripped in the browser before upload, keeping only orientation. Video metadata, including GPS, is **not** stripped.
+JPEG and PNG photos are converted in the browser to WebP at 90% quality before upload, keeping their dimensions, orientation, and transparency. WebP is used only when smaller; browsers without WebP encoding keep the original format. GIF, AVIF, existing WebP, and videos pass through unchanged. The 20 MB photo limit applies to the selected file before conversion.
+
+**Known limitation:** JPEG location data (EXIF/GPS) is stripped in the browser before upload; orientation is applied to converted pixels or retained in JPEGs. Video metadata, including GPS, is **not** stripped.
 
 ### Local development
 
-The site uses `http://127.0.0.1:8787` when served from localhost, and the deployed Worker otherwise. Create `worker/.dev.vars` (git-ignored) containing `ADMIN_TOKEN=dev-admin-token`, then run the Worker next to `npm start`:
+The site uses the deployed Worker everywhere, including localhost, so local dev shows the same guest uploads as Pages. Uploads you make locally go to production. To use a local Worker instead, run `localStorage.uploadApi = 'http://127.0.0.1:8787'` in the browser console (`delete localStorage.uploadApi` to switch back); `tools/uploads-check.mjs` sets this itself. Create `worker/.dev.vars` (git-ignored) containing `ADMIN_TOKEN=dev-admin-token`, then run the Worker next to `npm start`:
 
 ```sh
 cd worker && npm install && npm run migrate:local && npm run dev
@@ -98,6 +100,7 @@ Both checks need a **fresh** local state, so point `--persist-to` at an empty te
 
 - `tools/upload-api-check.mjs` checks the Worker API: albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` (default `http://127.0.0.1:8787`) and `ADMIN_TOKEN` (default `dev-admin-token`) are optional.
 - `tools/uploads-check.mjs` checks the browser flow: the upload dialog, EXIF stripping, the guest profile, albums, the lightbox, and the exported site. It needs `npm start` and `wrangler dev` with default vars, plus `PLAYWRIGHT_MODULE` pointing at an external `playwright-core/index.mjs`. `SITE_URL` and `API_URL` are optional.
+- `tools/image-upload-check.mjs` checks WebP conversion, size savings, transparency, orientation, metadata removal, unsupported encoders, failed conversions, and unchanged media. It needs `npm start` and `PLAYWRIGHT_MODULE`, and intercepts API requests so nothing is uploaded to a Worker.
 - `node tools/upload-api-check.mjs --smoke` is safe to run against production. It creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album, so it leaves nothing behind. It requires `API_URL` and `ADMIN_TOKEN`.
 
 ### Deploy (one time)
