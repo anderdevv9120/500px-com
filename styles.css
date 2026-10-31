@@ -80,7 +80,7 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-new-comment { padding: 16px 0; border-bottom: 1px solid #222; color: #ddd; }
 .local-new-comment strong { display: block; margin-bottom: 6px; color: white; }
 .local-lightbox { max-width: calc(100vw - 32px); width: max-content; padding: 0; border: 0; background: #050505; }
-.local-lightbox img { display: block; width: auto; max-width: calc(100vw - 40px); height: auto; max-height: calc(100dvh - 100px); object-fit: contain; }
+.local-lightbox img, .local-lightbox video { display: block; width: auto; max-width: calc(100vw - 40px); height: auto; max-height: calc(100dvh - 100px); object-fit: contain; }
 .local-lightbox .lightbox-caption { display: flex; justify-content: space-between; gap: 20px; padding: 12px 18px; }
 .local-lightbox button { background: #222; color: white; border: 0; border-radius: 8px; padding: 6px 14px; font: inherit; }
 .local-lightbox .local-close { background: #0008; z-index: 2; }

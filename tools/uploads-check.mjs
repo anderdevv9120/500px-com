@@ -93,6 +93,62 @@ try {
   assert.equal(await brokenDialog.locator('form button[type="submit"]').isDisabled(),true);
   assert.deepEqual(errors,[]);
   console.log('upload dialog ok');
+
+  // guest gallery
+  const title='<img src=x onerror=alert(1)>',author=`"Q" & 'A' 📷`;
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
+  const post=(path,init)=>fetch(api+path,init).then(async r=>{assert.ok(r.ok,`${path} ${r.status}`);return r.json();});
+  const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
+  for(const [file,type,body] of [['a.png','image/png',png],['b.mp4','video/mp4',mp4]])
+    await post(`/api/albums/${seeded.id}/media?title=${file}&author=${encodeURIComponent(author)}`,{method:'PUT',headers:{'content-type':type},body});
+  const guest=await context.newPage();
+  guest.on('pageerror',error=>errors.push(error.message));
+  guest.on('dialog',d=>{errors.push('alert: '+d.message());d.dismiss();});
+  await guest.clock.install();
+  await guest.goto(`${origin}/galleries/guest?album=${seeded.id}`,{waitUntil:'networkidle'});
+  await guest.locator('.gallery-photo').first().waitFor();
+  assert.equal(await guest.locator('[data-gallery] h1').textContent(),title);
+  assert.equal(await guest.locator('img[src="x"]').count(),0);
+  assert.equal(await guest.locator('.gallery-photo img').count(),1);
+  assert.equal(await guest.locator('.gallery-photo video').count(),1);
+  assert.equal(await guest.locator('.gallery-play-badge').count(),1);
+  assert.equal(await guest.locator('.gallery-count').textContent(),'2 items');
+  assert.equal((await guest.locator('[data-gallery-owner]').textContent()).trim(),'Guest uploads');
+  assert.equal(await guest.locator('.gallery-follow').count(),0);
+  assert.equal(await guest.locator('[data-gallery-back]').textContent(),'← Galleries by Guest uploads');
+  assert.equal(await guest.locator('[data-gallery-back]').getAttribute('href'),'/p/guest?view=galleries');
+  for(const caption of await guest.locator('.gallery-photo figcaption').allTextContents())assert.ok(caption.includes(author),caption);
+  await guest.locator('.gallery-photo:has(video) button').click();
+  await guest.locator('.local-lightbox video[controls]').waitFor();
+  await guest.locator('[data-slide="next"]').click();
+  await guest.locator('.local-lightbox img').waitFor();
+  assert.equal(await guest.locator('.local-lightbox video').count(),0);
+  await guest.keyboard.press('Escape');
+  // slideshow: the image advances to the video after 5 s, then holds while that video is playing
+  await guest.evaluate(()=>{window.realPaused=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'paused');Object.defineProperty(HTMLMediaElement.prototype,'paused',{get:()=>false,configurable:true});});
+  await guest.locator('[data-gallery-action="slideshow"]').click();
+  await guest.locator('.local-lightbox img').waitFor();
+  await guest.clock.runFor(5000);
+  await guest.locator('.local-lightbox video[controls]').waitFor();
+  await guest.clock.runFor(10000);
+  assert.equal(await guest.locator('.local-lightbox video').count(),1,'slideshow advanced past a playing video');
+  await guest.evaluate(()=>Object.defineProperty(HTMLMediaElement.prototype,'paused',window.realPaused));
+  await guest.clock.runFor(5000);
+  await guest.locator('.local-lightbox img').waitFor();
+  await guest.keyboard.press('Escape');
+  // missing album, API outage, seeded regression
+  await guest.goto(origin+'/galleries/guest?album=nope',{waitUntil:'networkidle'});
+  await guest.getByText('Gallery not found').waitFor();
+  await guest.route(url=>url.pathname.startsWith('/api/albums/'),route=>route.abort());
+  await guest.goto(`${origin}/galleries/guest?album=${seeded.id}`,{waitUntil:'networkidle'});
+  await guest.getByText('Guest uploads are unavailable right now.').waitFor();
+  await guest.unroute(()=>true);
+  await guest.goto(origin+'/galleries/0?owner=MarcoGrassi',{waitUntil:'networkidle'});
+  await guest.locator('.gallery-photo').first().waitFor();
+  assert.equal(await guest.locator('.gallery-count').textContent(),`${await guest.locator('.gallery-photo').count()} photos`);
+  assert.equal(await guest.locator('.gallery-follow').count(),1);
+  assert.deepEqual(errors,[]);
+  console.log('guest gallery ok');
 } finally {
   await browser.close();
 }

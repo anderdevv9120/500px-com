@@ -34,7 +34,7 @@ async function api(path, options) {
   let response;
   try { response = await fetch(uploadApi + path, options); } catch { throw Error(uploadDown); }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw Error(body.error || uploadDown);
+  if (!response.ok) throw Object.assign(Error(body.error || uploadDown), {status: response.status});
   return body;
 }
 
@@ -356,13 +356,13 @@ async function lightbox(index = 0, automatic = false, photos) {
   if (!activePhotos.length) return;
   photoIndex = (index + activePhotos.length) % activePhotos.length;
   const dialog = openDialog('<img alt=""><div class="lightbox-caption"><button type="button" data-slide="previous" aria-label="Previous photo">←</button><span></span><button type="button" data-slide="next" aria-label="Next photo">→</button></div>','local-lightbox');
-  const update = () => { const photo = activePhotos[photoIndex]; const img = dialog.querySelector('img'); img.src = photo.src; img.alt = photo.title; dialog.querySelector('.lightbox-caption span').textContent = `${photo.title} · ${photo.author}`; };
+  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); dialog.querySelector('.lightbox-caption span').textContent = `${photo.title} · ${photo.author}`; };
   const move = step => { photoIndex = (photoIndex + step + activePhotos.length) % activePhotos.length; update(); };
   dialog.querySelector('[data-slide="previous"]').addEventListener('click',() => move(-1));
   dialog.querySelector('[data-slide="next"]').addEventListener('click',() => move(1));
   dialog.addEventListener('keydown',event => { if (event.key === 'ArrowRight') move(1); if (event.key === 'ArrowLeft') move(-1); });
   update();
-  if (automatic) slideshowTimer = setInterval(() => move(1),5000);
+  if (automatic) slideshowTimer = setInterval(() => { const video = dialog.querySelector('video'); if (!video || video.paused || video.ended) move(1); },5000);
 }
 
 async function share(url = location.href, title = 'Share this photo') {
@@ -561,28 +561,48 @@ async function renderLicensingQuest() {
     <div role="tabpanel" id="licensing-entries" aria-labelledby="licensing-tab-1" data-quest-entries tabindex="0" hidden></div></div>`;
 }
 
+function mediaFigure(item, index, {lightbox}) {
+  const title = escapeHTML(item.title), media = item.kind === 'video' ? `<video src="${escapeHTML(item.src)}" preload="metadata" muted playsinline></video><span class="gallery-play-badge" aria-hidden="true">▶</span>` : `<img src="${escapeHTML(item.src)}" alt="${title}" ${index>5?'loading="lazy"':''}>`;
+  return `<figure class="gallery-photo">${lightbox?`<button data-gallery-photo="${index}" aria-label="View ${title}">${media}</button>`:`<a data-gallery-photo="${index}" href="${escapeHTML(item.href)}">${media}</a>`}<figcaption>${lightbox?'':`<strong>${title}</strong>`}${escapeHTML(item.author)}</figcaption></figure>`;
+}
+
 async function renderGallery() {
-  const data=await galleries();
   const id=location.pathname.split('/').filter(Boolean).pop();
+  const isGuest=id==='guest';
   const isGrant=location.pathname.startsWith('/gallery/');
-  const owner=new URLSearchParams(location.search).get('owner') || 'MarcoGrassi';
-  const profile=Object.hasOwn(data.profiles,owner)?data.profiles[owner]:null;
-  const gallery=isGrant?data.grants.find(g=>g.id===id):profile?.galleries.find(g=>g.id===id);
+  const lightboxMode=isGrant||isGuest;
+  const query=new URLSearchParams(location.search);
+  const owner=query.get('owner') || 'MarcoGrassi';
   const main=document.querySelector('[data-gallery]');
-  if(!gallery){document.title='Gallery not found | 500px';main.innerHTML='<h1>Gallery not found</h1><p>This gallery is not available in the local collection.</p><a class="gallery-back" href="/discover">Explore photography</a>';return;}
+  const notFound=message=>{document.title='Gallery not found | 500px';main.innerHTML=`<h1>Gallery not found</h1><p>${message}</p><a class="gallery-back" href="/discover">Explore photography</a>`;};
+  let profile=null,gallery;
+  if(isGuest){
+    // Seeded galleries never touch the Worker; only this branch does.
+    try{
+      const album=query.get('album')?await api(`/api/albums/${encodeURIComponent(query.get('album'))}`):null;
+      if(album?.media.length)gallery={title:album.title,description:album.description,photos:album.media.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}))};
+    }catch(error){
+      if(error.status!==404){notFound('Guest uploads are unavailable right now.');return;}
+    }
+  }else{
+    const data=await galleries();
+    profile=Object.hasOwn(data.profiles,owner)?data.profiles[owner]:null;
+    gallery=isGrant?data.grants.find(g=>g.id===id):profile?.galleries.find(g=>g.id===id);
+  }
+  if(!gallery){notFound('This gallery is not available in the local collection.');return;}
   document.title=`${gallery.title} | 500px`;
   galleryPhotos=gallery.photos;
-  const back=isGrant?`/grants#${gallery.section}`:`/p/${owner}?view=galleries`;
-  const ownerHref=isGrant?'/grants':`/p/${owner}`;
-  const ownerName=isGrant?'500px':profile.name;
+  const back=isGrant?`/grants#${gallery.section}`:isGuest?'/p/guest?view=galleries':`/p/${owner}?view=galleries`;
+  const ownerHref=isGrant?'/grants':isGuest?'/p/guest':`/p/${owner}`;
+  const ownerName=isGrant?'500px':isGuest?'Guest uploads':profile.name;
   const following=state.following.includes(ownerHref);
   // shortcut: Grant galleries contain captured preview photos; expand when full collections can be captured.
   main.innerHTML=`<a class="gallery-back" data-gallery-back href="${back}">← ${isGrant?'Commercial Grants':`Galleries by ${escapeHTML(ownerName)}`}</a>
     <section class="gallery-header" aria-labelledby="gallery-title"><h1 id="gallery-title">${escapeHTML(gallery.title)}</h1>
-    <div class="gallery-owner-row"><a class="gallery-owner" href="${ownerHref}">${isGrant?'<span class="gallery-avatar" aria-hidden="true">500px</span>':`<img class="gallery-avatar" src="${escapeHTML(profile.avatar)}" alt="">`}<span><small>Curated by</small><span data-gallery-owner>${escapeHTML(ownerName)}</span></span></a>${isGrant?'':`<button class="gallery-control gallery-follow" data-follow-owner="${ownerHref}" aria-pressed="${following}">${following?'Following':'Follow'}</button>`}</div>
+    <div class="gallery-owner-row"><a class="gallery-owner" href="${ownerHref}">${lightboxMode?'<span class="gallery-avatar" aria-hidden="true">500px</span>':`<img class="gallery-avatar" src="${escapeHTML(profile.avatar)}" alt="">`}<span><small>Curated by</small><span data-gallery-owner>${escapeHTML(ownerName)}</span></span></a>${lightboxMode?'':`<button class="gallery-control gallery-follow" data-follow-owner="${ownerHref}" aria-pressed="${following}">${following?'Following':'Follow'}</button>`}</div>
     <p class="gallery-description">${escapeHTML(gallery.description)}</p></section>
-    <div class="gallery-toolbar"><span class="gallery-count">${gallery.photos.length} photos</span><div class="gallery-actions"><button class="gallery-control" data-gallery-action="slideshow" aria-label="Start slideshow">Slideshow</button><button class="gallery-control" data-gallery-action="share" aria-label="Share gallery">Share</button></div></div>
-    <div class="gallery-photos">${gallery.photos.map((photo,index)=>`<figure class="gallery-photo">${isGrant?`<button data-gallery-photo="${index}" aria-label="View ${escapeHTML(photo.title)}">`:`<a data-gallery-photo="${index}" href="${escapeHTML(photo.href)}">`}<img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" ${index>5?'loading="lazy"':''}>${isGrant?'</button>':'</a>'}<figcaption>${isGrant?'':`<strong>${escapeHTML(photo.title)}</strong>`}${escapeHTML(photo.author)}</figcaption></figure>`).join('')}</div>`;
+    <div class="gallery-toolbar"><span class="gallery-count">${gallery.photos.length} ${isGuest?'items':'photos'}</span><div class="gallery-actions"><button class="gallery-control" data-gallery-action="slideshow" aria-label="Start slideshow">Slideshow</button><button class="gallery-control" data-gallery-action="share" aria-label="Share gallery">Share</button></div></div>
+    <div class="gallery-photos">${gallery.photos.map((photo,index)=>mediaFigure(photo,index,{lightbox:lightboxMode})).join('')}</div>`;
 }
 
 async function handleTab(button) {
