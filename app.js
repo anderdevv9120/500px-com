@@ -27,7 +27,7 @@ let gridSize = 'small';
 let leaderboardRequest = 0;
 const questParams = new URLSearchParams(location.search);
 
-const uploadApi = ['localhost','127.0.0.1'].includes(location.hostname) ? 'http://127.0.0.1:8787' : 'https://500px-guest-uploads.SUBDOMAIN.workers.dev';
+const uploadApi = ['localhost','127.0.0.1'].includes(location.hostname) ? 'http://127.0.0.1:8787' : 'https://500px-guest-uploads.lamdan0901.workers.dev';
 const uploadLimits = {'image/jpeg':20,'image/png':20,'image/webp':20,'image/gif':20,'image/avif':20,'video/mp4':95,'video/webm':95,'video/quicktime':95};
 const uploadDown = 'Uploads are unavailable right now';
 

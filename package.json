@@ -5,6 +5,6 @@
   "scripts": {
     "start": "node server.mjs",
     "export:pages": "node tools/export-pages.mjs",
-    "lint": "node --check app.js && node --check server.mjs && node --check routes.mjs && node --check tools/export-pages.mjs && node --check tools/capture.mjs && node --check tools/prepare.mjs && node --check tools/inspect.mjs && node --check tools/browser-check.mjs && node --check tools/capture-leaderboard.mjs && node --check tools/leaderboard-check.mjs && node --check tools/quests-check.mjs && node --check tools/finish-licensing.mjs && node --check tools/licensing-check.mjs && node --check tools/blog-check.mjs && node --check tools/grants-check.mjs"
+    "lint": "node --check app.js && node --check server.mjs && node --check routes.mjs && node --check tools/export-pages.mjs && node --check tools/capture.mjs && node --check tools/prepare.mjs && node --check tools/inspect.mjs && node --check tools/browser-check.mjs && node --check tools/capture-leaderboard.mjs && node --check tools/leaderboard-check.mjs && node --check tools/quests-check.mjs && node --check tools/finish-licensing.mjs && node --check tools/licensing-check.mjs && node --check tools/blog-check.mjs && node --check tools/grants-check.mjs && node --check worker/src/index.js && node --check worker/src/rules.js && node --check tools/upload-api-check.mjs && node --check tools/uploads-check.mjs"
   }
 }

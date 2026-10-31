@@ -9,7 +9,7 @@ bucket_name = "500px-guest-media"
 [[d1_databases]]
 binding = "DB"
 database_name = "500px-guest-uploads"
-database_id = "REPLACE_AFTER_d1_create"
+database_id = "97c0b2f3-07c7-42af-833c-545e220d0b9e"
 migrations_dir = "migrations"
 
 [vars]

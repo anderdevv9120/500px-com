@@ -20,6 +20,37 @@ const call = (path, init) => fetch(API + path, init);
 const postAlbum = (body) =>
   call('/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+// ---- smoke (production-safe: everything it creates is deleted) ----
+//   API_URL=https://<worker>.workers.dev ADMIN_TOKEN=<secret> node tools/upload-api-check.mjs --smoke
+if (process.argv.includes('--smoke')) {
+  assert.ok(process.env.ADMIN_TOKEN, 'set ADMIN_TOKEN so the smoke album can be deleted');
+  const site = 'https://anderdevv9120.github.io';
+  const pre = await call('/api/albums', { method: 'OPTIONS', headers: { Origin: site } });
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get('access-control-allow-origin'), site);
+
+  const created = await postAlbum({ title: 'Smoke test' });
+  assert.equal(created.status, 201);
+  const albumPath = `/api/albums/${(await created.json()).id}`;
+  try {
+    const png = await readFile(new URL('../assets/0072-zeiss-badge-hGfrjZ9e.png', import.meta.url));
+    const res = await call(`${albumPath}/media?title=smoke`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+    assert.equal(res.status, 201);
+    const media = await res.json();
+    const albums = await (await call('/api/albums')).json();
+    assert.equal(albums.find((a) => a.id === media.albumId)?.count, 1);
+    const ranged = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=0-3' } });
+    assert.equal(ranged.status, 206);
+    assert.equal(ranged.headers.get('content-range'), `bytes 0-3/${png.length}`);
+  } finally {
+    const del = await call(albumPath, { method: 'DELETE', headers: { Authorization: `Bearer ${process.env.ADMIN_TOKEN}` } });
+    assert.equal(del.status, 204, 'smoke album was not deleted — remove it by hand');
+  }
+  assert.equal((await call(albumPath)).status, 404);
+  console.log('smoke: ok');
+  process.exit(0);
+}
+
 // ---- albums ----
 {
   const res = await postAlbum({ title: '  Trip  ', description: 'd' });

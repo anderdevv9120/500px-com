@@ -28,7 +28,8 @@ The export requires Node.js 22 or newer and no dependencies. The workflow obtain
 - Licensing landing page and all seven guides: licensing, contributing, requirements, releases, keywording, content types, and distribution.
 - Commercial Grants, with all five original project mosaics, photographer credits, section navigation, and local collection detail pages.
 - vivo campaign, app download, About Us, Terms, Privacy, and Licensing Agreement.
-- Local demo login, password visibility/recovery UI, upload preview, likes, saved galleries, follows, comments, sharing, and slideshow.
+- Guest photo and video uploads to a Cloudflare Worker, shown in guest albums on the `/p/guest` profile and at `/galleries/guest?album=<id>`.
+- Local demo login, password visibility/recovery UI, likes, saved galleries, follows, comments, sharing, and slideshow.
 
 The site contains 29 captured routes, 188 seeded photographs, 60 Quests, and 708 local assets, including the original Poppins font files and release PDFs. Photography and photographer credits are retained. The shared navigation omits Membership.
 
@@ -40,11 +41,12 @@ The site contains 29 captured routes, 188 seeded photographs, 60 Quests, and 708
 - `catalog.json`: hard-coded photo and Quest records.
 - `app.js`, `styles.css`: browser-local interactions and responsive layout corrections.
 - `server.mjs`: dependency-free local file server.
+- `worker/`: Cloudflare Worker (R2 + D1) behind guest uploads, with its own `package.json` for `wrangler`.
 - `tools/`: optional capture/preparation/browser-inspection utilities. These use an external Puppeteer installation supplied through `PUPPETEER_MODULE`; running the finished site does not require it.
 
 ## Demo behavior and limits
 
-Login accepts a sample username and a sample password of at least four characters after checking the terms box. It creates a local demo session. Passwords are neither saved nor sent. Likes, follows, galleries, and comments live in browser storage. Upload previews and contest submissions do not call a backend. Clear the `500px-local-demo` localStorage entry to reset onboarding and demo state.
+Login accepts a sample username and a sample password of at least four characters after checking the terms box. It creates a local demo session. Passwords are neither saved nor sent. Likes, follows, galleries, and comments live in browser storage. Contest submissions do not call a backend; Upload sends files to the guest-uploads Worker (below). Clear the `500px-local-demo` localStorage entry to reset onboarding and demo state.
 
 The original layouts, typography, public copy, and available images were captured from the live site. Feed content is a finite local snapshot. Additional photo/Quest URLs reuse the captured detail layout with seeded titles and images; uncaptured profiles reuse the sample profile. Search uses seeded results, and some filter data is representative. Blog layouts now follow the working ISO Blog reference, with condensed local text as described below. These areas are not a verified pixel-for-pixel copy of all live states.
 
@@ -54,7 +56,7 @@ The Quests hub contains 60 actual contests captured on October 28, 2026, includi
 
 All 20 captured Licensing Quest URLs now use a dedicated Juried-style Licensing detail template, with their own title, hero and captured submission dates, an ended state, Introduction/All Entries tabs, sharing, cash-award content, and Licensing rules. The Battle and general Juried samples retain their existing templates. Indexed official pages for [After Hours](https://500px.com/quest/1000005269-after-hours) and [On the Clock](https://500px.com/quest/1000005271-on-the-clock) supplied the sample structure, counts, cash awards and thematic guidance; the browser reference remains inaccessible, so pixel-level parity is unverified. Briefs are condensed/paraphrased, the other contests use representative brief/award text, and entry photos are seeded content. `catalog.json` carries the Licensing route metadata; `tools/prepare.mjs` preserves it when preparing captures. Run `tools/quest-licensing-check.mjs` with the same external `PLAYWRIGHT_MODULE` used by the gallery check. Desktop/mobile evidence is saved as `screenshots/quest-licensing-*`.
 
-App Store, Google Play, social links, support articles, and Getty Images links retain their external destinations. There is no live authentication, email delivery, payment, image publishing, or licensing purchase integration.
+App Store, Google Play, social links, support articles, and Getty Images links retain their external destinations. There is no live authentication, email delivery, payment, or licensing purchase integration. Guest uploads are the only publishing path.
 
 Licensing includes the original model release, property release, and contributor agreement PDFs, served locally. All seven guides have working desktop navigation, mobile Table of Contents, section deep links, and a dismissible app banner. Get started and manager links use the existing local login/upload demo; customer support opens local guidance. All five Grant collections open local gallery detail pages. `tools/finish-licensing.mjs` refreshes this snapshot without recapturing unrelated pages. Desktop/mobile evidence and focused check results are under `screenshots/licensing-*`.
 
@@ -67,6 +69,68 @@ Commercial Grants reuses all 28 saved photos, with scroll reveals, reduced-motio
 The Blog at `/blog` follows the original [ISO listing](https://iso.500px.com/) and [Fog article](https://iso.500px.com/into-the-mist-creating-atmosphere-with-fog-photography/) inspected in desktop and mobile Chrome. It retains the normal black 500px site header above the light Blog content, matching the embedded Blog at `/blog`. The local Open Sans font, photographic feature, five Top Posts, eleven Latest Posts, category menus, footer, and sixteen local article routes remain below it. Articles reuse the inspected hero/reading-column/previous-next layout; the Fog article uses all five captured body photos. Excerpts and article copy are condensed/representative; other stories reuse the template with their own title and photography. Categories filter this finite snapshot and can be empty. Ads, full archives, live social widgets, and Blog search behavior are excluded. Oversized photos are resized locally without changing their proportions. The general capture/preparation scripts preserve the finished Blog.
 
 Run `tools/blog-check.mjs` with the same external `PLAYWRIGHT_MODULE` to verify desktop/mobile routes, menus, sharing, article navigation, missing routes, and login-dialog reuse. It saves `screenshots/blog-results.json` and listing/article/category screenshots. Reference screenshots are saved under `.reference/blog-*`. Chrome DevTools MCP initially had an occupied profile; a subsequent retry independently verified the local listing and Fog article on desktop/mobile, including touch, navigation, sharing, menu/Escape, images, overflow, console messages, and network requests. Manager/account screens and Membership remain excluded.
+
+## Guest uploads (Cloudflare)
+
+Anyone can upload without an account. Upload creates a new album or adds to an existing one; albums appear under **Galleries** on `/p/guest` and at `/galleries/guest?album=<id>`, with photos and playable videos in the lightbox. The Worker in `worker/` stores files in R2 and album/media rows in D1. The site stays static, and seeded content never depends on the Worker: if it is down, only the upload dialog and guest pages show an error.
+
+Limits, enforced by the Worker:
+
+- Photos (JPEG, PNG, WebP, GIF, AVIF) up to 20 MB. Videos (MP4, WebM, MOV) up to 95 MB, a **temporary** limit.
+- File types are checked by their first bytes after upload, not only by the declared type.
+- 50 uploads per visitor per hour (`UPLOADS_PER_HOUR`) and 5 GB total storage (`STORAGE_CAP_BYTES`), both Worker vars in `wrangler.toml`.
+- Album title 1–60 characters, description ≤ 280, author ≤ 40 (default "Guest"), media title ≤ 100 (defaults to the file name).
+- CORS is limited to `ALLOWED_ORIGINS` (GitHub Pages plus localhost:5000).
+
+**Known limitation:** JPEG location data (EXIF/GPS) is stripped in the browser before upload, keeping only orientation. Video metadata, including GPS, is **not** stripped.
+
+### Local development
+
+The site uses `http://127.0.0.1:8787` when served from localhost, and the deployed Worker otherwise. Create `worker/.dev.vars` (git-ignored) containing `ADMIN_TOKEN=dev-admin-token`, then run the Worker next to `npm start`:
+
+```sh
+cd worker && npm install && npm run migrate:local && npm run dev
+```
+
+### Checks
+
+Both checks need a **fresh** local state, so point `--persist-to` at an empty temp directory. `WRANGLER_DISABLE_REQUEST_BODY_DRAINING=1` stops `wrangler dev` from holding the early 413 response until the body is drained. The exact commands are in each file's header.
+
+- `tools/upload-api-check.mjs` checks the Worker API: albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` (default `http://127.0.0.1:8787`) and `ADMIN_TOKEN` (default `dev-admin-token`) are optional.
+- `tools/uploads-check.mjs` checks the browser flow: the upload dialog, EXIF stripping, the guest profile, albums, the lightbox, and the exported site. It needs `npm start` and `wrangler dev` with default vars, plus `PLAYWRIGHT_MODULE` pointing at an external `playwright-core/index.mjs`. `SITE_URL` and `API_URL` are optional.
+- `node tools/upload-api-check.mjs --smoke` is safe to run against production. It creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album, so it leaves nothing behind. It requires `API_URL` and `ADMIN_TOKEN`.
+
+### Deploy (one time)
+
+From `worker/`, signed in to the Cloudflare account:
+
+```sh
+npx wrangler login
+npx wrangler r2 bucket create 500px-guest-media
+npx wrangler d1 create 500px-guest-uploads    # paste database_id into wrangler.toml
+npm run migrate:remote
+npx wrangler secret put ADMIN_TOKEN           # enter a long random value
+npm run deploy                                # prints the *.workers.dev URL
+```
+
+Set that URL as the production `uploadApi` in `app.js`, then smoke-test:
+
+```sh
+API_URL=https://<worker>.workers.dev ADMIN_TOKEN=<token> node tools/upload-api-check.mjs --smoke
+```
+
+Later Worker changes only need `npm run deploy`. Schema changes also need `npm run migrate:remote`.
+
+### Admin deletes
+
+There is no moderation UI. Use the admin token to remove media or a whole album; R2 objects are deleted with their rows:
+
+```sh
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>.workers.dev/api/media/<mediaId>
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>.workers.dev/api/albums/<albumId>
+```
+
+Both return `204`, `401` for a missing or wrong token, and `404` for an unknown id. Media ids appear in `GET /api/media` and album ids in `GET /api/albums`.
 
 ## Verification
 
