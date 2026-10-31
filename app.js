@@ -26,6 +26,58 @@ let gridSize = 'small';
 let leaderboardRequest = 0;
 const questParams = new URLSearchParams(location.search);
 
+const uploadApi = ['localhost','127.0.0.1'].includes(location.hostname) ? 'http://127.0.0.1:8787' : 'https://500px-guest-uploads.SUBDOMAIN.workers.dev';
+const uploadLimits = {'image/jpeg':20,'image/png':20,'image/webp':20,'image/gif':20,'image/avif':20,'video/mp4':95,'video/webm':95,'video/quicktime':95};
+const uploadDown = 'Uploads are unavailable right now';
+
+async function api(path, options) {
+  let response;
+  try { response = await fetch(uploadApi + path, options); } catch { throw Error(uploadDown); }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw Error(body.error || uploadDown);
+  return body;
+}
+
+function clientCheck(file) {
+  if (/^image\/hei[cf]$/.test(file.type) || /\.hei[cf]$/i.test(file.name)) return "HEIC isn't supported — export as JPEG.";
+  const mb = uploadLimits[file.type];
+  if (!mb) return 'Unsupported file type.';
+  if (!file.size) return 'File is empty.';
+  return file.size > mb * 1024 * 1024 ? `Too large (max ${mb} MB).` : null;
+}
+
+// Drops APP1 (EXIF/XMP) segments that precede the scan data; anything that is not a JPEG passes through unchanged.
+function stripJpegExif(buffer) {
+  const b = new Uint8Array(buffer);
+  if (b[0] !== 0xFF || b[1] !== 0xD8) return new Blob([b]);
+  const parts = [b.subarray(0, 2)];
+  let i = 2;
+  while (i + 4 <= b.length && b[i] === 0xFF && b[i + 1] !== 0xFF && b[i + 1] !== 0xDA) {
+    const end = i + 2 + ((b[i + 2] << 8) | b[i + 3]);
+    if (b[i + 1] !== 0xE1) parts.push(b.subarray(i, end));
+    i = end;
+  }
+  parts.push(b.subarray(i));
+  return new Blob(parts);
+}
+
+async function putMedia(albumId, file, {title, author}, onProgress) {
+  const body = file.type === 'image/jpeg' ? stripJpegExif(await file.arrayBuffer()) : file;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title, author})}`);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
+    xhr.onerror = () => reject(Error(uploadDown));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON error body */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(Error(data.error || uploadDown));
+    };
+    xhr.send(body);
+  });
+}
+
 function toast(message) {
   document.querySelector('.local-toast')?.remove();
   const el = document.createElement('div');
@@ -329,17 +381,47 @@ async function collect(photo) {
 }
 
 async function upload() {
-  if (!state.user) return login();
-  const dialog = openDialog('<h2>Upload photos</h2><p>Share your photography with the community.</p><form><label for="upload-file">Choose a photo</label><input id="upload-file" type="file" accept="image/*" required><img class="local-upload-preview" hidden alt="Photo preview"><label for="upload-title">Title</label><input id="upload-title" maxlength="100" required placeholder="Give your photo a title"><label for="upload-category">Category</label><select id="upload-category"><option>Landscape</option><option>City</option><option>People</option><option>Nature</option><option>Still life</option><option>Events</option><option>Sports</option><option>Creative</option></select><button type="submit" class="primary">Publish photo</button></form>');
-  let preview;
-  dialog.querySelector('input[type="file"]').addEventListener('change',event => {
-    const file = event.target.files[0]; if (!file) return;
-    if (!file.type.startsWith('image/')) { event.target.value = ''; toast('Choose an image file.'); return; }
-    if (preview) URL.revokeObjectURL(preview);
-    preview = URL.createObjectURL(file); const img = dialog.querySelector('img'); img.src = preview; img.hidden = false;
+  const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><label for="upload-file">Choose files</label><input id="upload-file" type="file" accept="image/*,video/*" multiple><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><label for="upload-author">Your name (optional)</label><input id="upload-author" maxlength="40" placeholder="Guest"><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
+  const form = dialog.querySelector('form'), list = dialog.querySelector('.upload-files'), msg = dialog.querySelector('.upload-msg'), submit = dialog.querySelector('[type="submit"]');
+  const [newPane, existingPane] = all('[data-mode]', dialog), select = dialog.querySelector('#upload-album'), existingRadio = dialog.querySelector('[value="existing"]'), titleInput = dialog.querySelector('#upload-album-title');
+  let items = [], blocked = false;
+  const say = (text, bad) => { msg.textContent = text; msg.classList.toggle('bad', Boolean(bad)); };
+  const setStatus = (item, text, bad) => { item.status.textContent = text; item.row.classList.toggle('bad', Boolean(bad)); };
+  all('[name="album-mode"]', dialog).forEach(radio => radio.addEventListener('change', () => { const existing = existingRadio.checked; newPane.hidden = existing; existingPane.hidden = !existing; titleInput.required = !existing; }));
+  api('/api/albums').then(albums => {
+    select.innerHTML = albums.map(album => `<option value="${escapeHTML(album.id)}">${escapeHTML(album.title)} (${album.count})</option>`).join('');
+    existingRadio.disabled = !albums.length;
+  }, error => { blocked = true; submit.disabled = true; existingRadio.disabled = true; say(error.message, true); });
+  dialog.querySelector('input[type="file"]').addEventListener('change', event => {
+    const files = [...event.target.files];
+    list.innerHTML = files.map(file => `<li class="upload-row"><span class="upload-name">${escapeHTML(file.name)}</span><span>${(file.size / 1048576).toFixed(1)} MB</span><span class="upload-status"></span><progress max="1" value="0" hidden></progress></li>`).join('');
+    items = files.map((file, index) => ({file, error: clientCheck(file), row: list.children[index], status: list.children[index].querySelector('.upload-status'), bar: list.children[index].querySelector('progress')}));
+    items.forEach(item => setStatus(item, item.error || 'Ready', item.error));
+    submit.disabled = blocked; say('');
   });
-  dialog.addEventListener('close',() => { if(preview) URL.revokeObjectURL(preview); });
-  dialog.querySelector('form').addEventListener('submit',event => { event.preventDefault(); if(event.target.reportValidity()) { dialog.close(); toast('Photo preview complete. Uploads are not sent in this local demo.'); } });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const valid = items.filter(item => !item.error);
+    if (!valid.length) { say('Choose at least one supported photo or video.', true); return; }
+    submit.disabled = true; say('');
+    let albumId = select.value;
+    try {
+      if (!existingRadio.checked) albumId = (await api('/api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
+    } catch (error) { say(error.message, true); submit.disabled = blocked; return; }
+    const author = dialog.querySelector('#upload-author').value.trim();
+    let uploaded = 0;
+    for (const item of valid) {
+      item.bar.hidden = false; item.bar.value = 0; setStatus(item, 'Uploading…');
+      try {
+        await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), author}, fraction => { item.bar.value = fraction; });
+        uploaded++; setStatus(item, 'Uploaded');
+      } catch (error) { setStatus(item, error.message, true); }
+      item.bar.hidden = true;
+    }
+    say(`${uploaded} uploaded, ${items.length - uploaded} failed`, uploaded < items.length);
+    if (uploaded) { const link = document.createElement('a'); link.href = `/galleries/guest?album=${encodeURIComponent(albumId)}`; link.textContent = 'View album'; msg.append(' · ', link); }
+  });
 }
 
 async function questSubmission() {
