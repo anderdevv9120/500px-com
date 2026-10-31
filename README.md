@@ -82,7 +82,7 @@ Limits, enforced by the Worker:
 - Album title 1–60 characters, description ≤ 280, author ≤ 40 (default "Guest"), media title ≤ 100 (defaults to the file name).
 - CORS is limited to `ALLOWED_ORIGINS` (GitHub Pages plus localhost:5000).
 
-JPEG and PNG photos are converted in the browser to WebP at 90% quality before upload, keeping their dimensions, orientation, and transparency. WebP is used only when smaller; browsers without WebP encoding keep the original format. GIF, AVIF, existing WebP, and videos pass through unchanged. The 20 MB photo limit applies to the selected file before conversion.
+Clicking Upload prepares the selected files in the browser before any media upload starts. JPEG and PNG photos are converted to WebP at 90% quality while keeping their dimensions, orientation, and transparency. The list shows “Converting…” during conversion, then updates the filename and size before uploading. Upload stays disabled throughout preparation and upload. If WebP is not smaller, or the browser cannot encode WebP, the original format is kept and the status says “Uploading original…”. GIF, AVIF, existing WebP, and videos pass through unchanged. The 20 MB photo limit applies to the selected file before conversion.
 
 **Known limitation:** JPEG location data (EXIF/GPS) is stripped in the browser before upload; orientation is applied to converted pixels or retained in JPEGs. Video metadata, including GPS, is **not** stripped.
 

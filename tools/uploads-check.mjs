@@ -77,9 +77,9 @@ try {
   await page.route(isPut,async route=>{await new Promise(r=>setTimeout(r,400));await route.continue();});
   await dialog.locator('form button[type="submit"]').click();
   // both valid files upload in parallel (pool of 3)
-  await page.waitForFunction(()=>[...document.querySelectorAll('dialog[open] .upload-status')].filter(s=>s.textContent==='Uploading…').length===2);
+  await page.waitForFunction(()=>[...document.querySelectorAll('dialog[open] .upload-status')].filter(s=>s.textContent.startsWith('Uploading')).length===2);
   assert.equal(await picker.isDisabled(),true,'picker must lock during upload');
-  assert.equal(await dialog.getByRole('button',{name:'Remove photo.jpg'}).isDisabled(),true,'remove must lock during upload');
+  assert.equal(await rows.nth(0).getByRole('button',{name:/^Remove photo\.(webp|jpg)$/}).isDisabled(),true,'remove must lock during upload');
   assert.equal(await dialog.getByRole('button',{name:'Clear all'}).isDisabled(),true,'clear must lock during upload');
   await dialog.locator('.upload-msg').getByText('2 uploaded, 2 failed').waitFor({timeout:30000});
   assert.match(await dialog.locator('.upload-msg a:has-text("View album")').getAttribute('href'),/\/galleries\/guest\?album=/);
@@ -110,18 +110,24 @@ try {
   const detail=await (await fetch(`${api}/api/albums/${album.id}`)).json();
   const image=detail.media.find(m=>m.title==='photo');
   assert.equal(image.title,'photo');
-  const bytes=Buffer.from(await (await fetch(image.url)).arrayBuffer());
+  const downloaded=await fetch(image.url);
+  const bytes=Buffer.from(await downloaded.arrayBuffer());
   assert.ok(!bytes.includes('GPSMARKER'),'GPSMARKER survived upload');
+  assert.equal(downloaded.headers.get('content-type'),image.contentType);
+  assert.equal(image.size,bytes.length,'stored metadata must match the downloaded file');
   if (image.contentType === 'image/webp') {
+    assert.match(new URL(image.url).pathname,/\.webp$/);
     assert.equal(bytes.toString('ascii',8,12),'WEBP');
-    const dimensions=await page.evaluate(async url=>{const image=await createImageBitmap(await (await fetch(url)).blob());const size=[image.width,image.height];image.close();return size;},image.url);
-    const original=await page.evaluate(async bytes=>{const image=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/jpeg'}));const size=[image.width,image.height];image.close();return size;},[...jpeg]);
-    assert.deepEqual(dimensions,original,'converted portrait dimensions changed');
     assert.ok(bytes.length<jpeg.length,'WebP must save bytes');
   } else {
+    assert.equal(image.contentType,'image/jpeg');
+    assert.match(new URL(image.url).pathname,/\.jpg$/);
     assert.ok(bytes.length>1000&&bytes[0]===0xFF&&bytes[1]===0xD8);
     assert.equal(orientationOf(bytes),6,'EXIF orientation lost');
   }
+  const dimensions=await page.evaluate(async url=>{const image=await createImageBitmap(await (await fetch(url)).blob());const size=[image.width,image.height];image.close();return size;},image.url);
+  const original=await page.evaluate(async bytes=>{const image=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/jpeg'}));const size=[image.width,image.height];image.close();return size;},[...jpeg]);
+  assert.deepEqual(dimensions,original,'converted portrait dimensions changed');
 
   // reopening lists the new album
   await page.goto(origin+'/upload',{waitUntil:'networkidle'});
@@ -217,7 +223,7 @@ try {
   assert.equal(await visible(prof,'Quests').count(),0);
   const card=prof.locator(`.local-collection-card[href$="album=${seeded.id}"]`);
   await card.waitFor();
-  assert.equal(await card.locator('span').textContent(),title);
+  assert.equal(await card.locator(':scope > span').textContent(),title);
   assert.equal(await prof.locator('img[src="x"]').count(),0);
   await card.click();
   await prof.locator('[data-gallery] h1').waitFor();

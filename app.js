@@ -77,7 +77,7 @@ function stripJpegExif(buffer) {
   return new Blob(parts);
 }
 
-async function putMedia(albumId, file, {title, author}, onProgress) {
+async function prepareMedia(file) {
   let body = file.type === 'image/jpeg' ? new Blob([stripJpegExif(await file.arrayBuffer())], {type:file.type}) : file;
   if (file.type === 'image/jpeg' || file.type === 'image/png') {
     const bitmap = await createImageBitmap(body), canvas = document.createElement('canvas');
@@ -93,6 +93,12 @@ async function putMedia(albumId, file, {title, author}, onProgress) {
       bitmap.close(); canvas.width = canvas.height = 0;
     }
   }
+  if (body === file) return file;
+  const name = body.type === 'image/webp' ? file.name.replace(/\.[^.]*$/, '') + '.webp' : file.name;
+  return new File([body], name, {type:body.type, lastModified:file.lastModified});
+}
+
+function putMedia(albumId, body, {title, author}, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title, author})}`);
@@ -451,9 +457,9 @@ async function upload() {
   // each pick appends; the same name + size again is treated as the same file
   picker.addEventListener('change', () => {
     for (const file of picker.files) {
-      if (items.some(item => item.file.name === file.name && item.file.size === file.size)) continue;
+      if (items.some(item => item.source.name === file.name && item.source.size === file.size)) continue;
       const error = clientCheck(file);
-      items.push({file, error, url: error ? '' : URL.createObjectURL(file), text: error || 'Ready', bad: Boolean(error)});
+      items.push({source:file, file, error, url: error ? '' : URL.createObjectURL(file), text: error || 'Ready', bad: Boolean(error)});
     }
     picker.value = '';
     render();
@@ -461,10 +467,21 @@ async function upload() {
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    if (submit.disabled) return;
     if (!form.reportValidity()) return;
     const pending = items, valid = pending.filter(item => !item.error);
     if (!valid.length) { say('Choose at least one supported photo or video.', true); return; }
     submit.disabled = true; say(''); lock(true);
+    const ready = [];
+    for (const item of valid) {
+      setStatus(item, /image\/(jpeg|png)/.test(item.file.type) ? 'Converting…' : 'Preparing…');
+      try {
+        item.file = await prepareMedia(item.file);
+        ready.push(item); setStatus(item, 'Ready');
+      } catch (error) { setStatus(item, error.message, true); }
+    }
+    render(); lock(true);
+    if (!ready.length) { say(`0 uploaded, ${pending.length} failed`, true); submit.disabled = blocked; lock(false); return; }
     let albumId = select.value;
     try {
       if (!existingRadio.checked) albumId = (await api('api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
@@ -473,9 +490,10 @@ async function upload() {
     let uploaded = 0, next = 0;
     // 3 workers pull from a shared queue, so at most 3 uploads are in flight
     const worker = async () => {
-      while (next < valid.length) {
-        const item = valid[next++];
-        item.bar.hidden = false; item.bar.value = 0; setStatus(item, 'Uploading…');
+      while (next < ready.length) {
+        const item = ready[next++];
+        item.bar.hidden = false; item.bar.value = 0;
+        setStatus(item, /image\/(jpeg|png)/.test(item.source.type) && item.file.type !== 'image/webp' ? 'Uploading original…' : 'Uploading…');
         try {
           await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), author}, fraction => { item.bar.value = fraction; });
           uploaded++; item.done = true; setStatus(item, 'Uploaded');

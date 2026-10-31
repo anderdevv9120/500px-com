@@ -46,6 +46,7 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-dialog:not(.local-auth) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .local-dialog select, .local-dialog textarea { width: 100%; border: 1px solid #333; border-radius: 12px; padding: 12px 14px; box-sizing: border-box; background: #090909; color: white; font: inherit; }
 .local-dialog input[type="checkbox"], .local-dialog input[type="radio"] { accent-color: white; }
 .local-dialog button.primary, .local-primary { border: 0; border-radius: 12px; background: #f9f9f9; color: #111; padding: 12px 20px; font: 500 14px/1.5 Poppins,sans-serif; cursor: pointer; }
+.local-dialog button.primary:disabled { opacity: .4; cursor: default; }
 .local-dialog button.secondary { border: 1px solid #444; border-radius: 12px; background: #292929; color: white; padding: 10px 16px; font: inherit; }
 .local-close { position: absolute; right: 16px; top: 12px; border: 0; padding: 6px 10px; background: transparent; color: #aaa; font-size: 25px; line-height: 1; cursor: pointer; }
 .local-dialog:not(.local-auth) form > button[type="submit"] { margin-top: 22px; width: 100%; }

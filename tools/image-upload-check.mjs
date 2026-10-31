@@ -8,12 +8,13 @@ try {
   const page = await browser.newPage();
   const errors = [];
   let uploads = 0;
+  let uploadGate = Promise.resolve();
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => { localStorage.uploadApi = 'http://127.0.0.1:8787'; });
   await page.route('http://127.0.0.1:8787/**', async route => {
     const request = route.request(), bytes = request.postDataBuffer();
     const headers = {'access-control-allow-origin':'*', 'access-control-allow-methods':'GET, PUT, OPTIONS', 'access-control-allow-headers':'Content-Type'};
-    if (request.method() === 'PUT') uploads++;
+    if (request.method() === 'PUT') { uploads++; await uploadGate; }
     const body = request.method() === 'POST' ? {id:'test'} : bytes ? {type:request.headers()['content-type'], bytes:[...bytes]} : [];
     await route.fulfill({status:200, headers, contentType:'application/json', body:JSON.stringify(body)});
   });
@@ -26,7 +27,7 @@ try {
     gradient.addColorStop(0, 'red'); gradient.addColorStop(1, 'blue');
     ctx.fillStyle = gradient; ctx.fillRect(80, 0, 240, 180);
     const png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    const send = (blob, name = 'photo.png') => putMedia('test', new File([blob], name, {type:blob.type}), {title:'photo', author:'Guest'}, () => {});
+    const send = async (blob, name = 'photo.png') => putMedia('test', await prepareMedia(new File([blob], name, {type:blob.type})), {title:'photo', author:'Guest'}, () => {});
     const inspect = async response => {
       const bytes = new Uint8Array(response.bytes), bitmap = await createImageBitmap(new Blob([bytes], {type:response.type}));
       canvas.width = bitmap.width; canvas.height = bitmap.height;
@@ -61,8 +62,18 @@ try {
     for (const type of ['image/webp', 'image/gif', 'image/avif', 'video/mp4']) {
       unchanged.push(await send(new Blob(['original'], {type})));
     }
-    return {converted, pngSize:png.size, portrait, hasGps, unsupported, pngBytes:[...new Uint8Array(await png.arrayBuffer())], jpegFallbackHasGps:new TextDecoder().decode(new Uint8Array(jpegFallback.bytes)).includes('GPSMARKER'), fallbackOrientation, larger, encodeError, decodeError, unchanged};
+    const photo = await (await fetch('/assets/0010-0.jpg')).blob();
+    const qualities = [];
+    HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) { qualities.push(quality); toBlob.call(this, callback, type, quality); };
+    const compressed = await prepareMedia(new File([photo], 'photo.jpg', {type:'image/jpeg'}));
+    HTMLCanvasElement.prototype.toBlob = toBlob;
+    const realPhoto = {qualities, sourceSize:photo.size, size:compressed.size, name:compressed.name, type:compressed.type};
+    return {realPhoto, converted, pngSize:png.size, portrait, hasGps, unsupported, pngBytes:[...new Uint8Array(await png.arrayBuffer())], jpegFallbackHasGps:new TextDecoder().decode(new Uint8Array(jpegFallback.bytes)).includes('GPSMARKER'), fallbackOrientation, larger, encodeError, decodeError, unchanged};
   });
+  assert.deepEqual(result.realPhoto.qualities, [0.9], 'conversion must use only 90% quality');
+  assert.equal(result.realPhoto.name, 'photo.jpg');
+  assert.equal(result.realPhoto.type, 'image/jpeg');
+  assert.equal(result.realPhoto.size, result.realPhoto.sourceSize, 'keep the original when 90% WebP is larger');
   assert.equal(result.converted.type, 'image/webp');
   assert.equal(result.converted.signature, 'WEBP');
   assert.ok(result.converted.size < result.pngSize);
@@ -84,26 +95,89 @@ try {
     assert.equal(Buffer.from(result.unchanged[index].bytes).toString(), 'original');
   }
   assert.equal(uploads, 9, 'failed conversions must not upload');
-  const png = await page.evaluate(async () => {
-    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
-    canvas.getContext('2d').fillRect(0, 0, 64, 64);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve));
-    return [...new Uint8Array(await blob.arrayBuffer())];
+  await page.evaluate(() => {
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function(...args) {
+      window.finishConversion = () => { HTMLCanvasElement.prototype.toBlob = toBlob; toBlob.apply(this, args); };
+    };
   });
   const dialog = page.locator('dialog[open]');
   await dialog.locator('input[type="file"]').setInputFiles([
-    {name:'image.png', mimeType:'image/png', buffer:Buffer.from(png)},
+    {name:'image.png', mimeType:'image/png', buffer:Buffer.from(result.pngBytes)},
     {name:'broken.png', mimeType:'image/png', buffer:Buffer.from('broken')},
     {name:'clip.mp4', mimeType:'video/mp4', buffer:Buffer.from('video')}
   ]);
+  const submit = dialog.locator('button[type="submit"]');
+  assert.equal(await submit.isEnabled(), true, 'selecting files must not start conversion');
+  assert.equal(await page.evaluate(() => typeof window.finishConversion), 'undefined');
+  assert.equal(await dialog.locator('.upload-name').first().textContent(), 'image.png');
+  assert.equal(uploads, 9);
+  await dialog.locator('input[type="file"]').setInputFiles({name:'image.png', mimeType:'image/png', buffer:Buffer.from(result.pngBytes)});
+  assert.equal(await dialog.locator('.upload-row').count(), 3, 'repeated selections must be deduplicated');
   await dialog.locator('#upload-album-title').fill('Conversion check');
-  await dialog.locator('button[type="submit"]').click();
+  let releaseUploads;
+  uploadGate = new Promise(resolve => { releaseUploads = resolve; });
+  await submit.click();
+  await page.waitForFunction(() => typeof window.finishConversion === 'function');
+  await dialog.locator('.upload-status').getByText('Converting…', {exact:true}).waitFor();
+  assert.equal(await submit.isDisabled(), true, 'Upload must stay disabled during conversion');
+  assert.equal(uploads, 9, 'media uploads must wait for conversion');
+  await page.evaluate(() => window.finishConversion());
+  await dialog.locator('.upload-name').getByText('image.webp', {exact:true}).waitFor();
+  const convertedRow = dialog.locator('.upload-row').filter({has:page.getByText('image.webp', {exact:true})});
+  assert.equal(await convertedRow.locator('.upload-size').textContent(), `${Math.max(1, Math.round(result.converted.size / 1024))} KB`);
+  await dialog.locator('.upload-status').getByText('Uploading…', {exact:true}).first().waitFor();
+  assert.equal(await submit.isDisabled(), true, 'Upload must stay disabled while media is uploading');
+  const disabledStyle = await submit.evaluate(button => ({opacity:getComputedStyle(button).opacity, cursor:getComputedStyle(button).cursor}));
+  assert.ok(Number(disabledStyle.opacity) < 1, 'Upload must look disabled while media is uploading');
+  assert.equal(disabledStyle.cursor, 'default');
+  releaseUploads();
   await dialog.locator('.upload-msg').getByText('2 uploaded, 1 failed').waitFor();
   assert.equal(await dialog.locator('.upload-row').count(), 1);
   assert.equal(await dialog.locator('.upload-name').textContent(), 'broken.png');
   assert.equal(await dialog.locator('.upload-row.bad').count(), 1);
   assert.equal(await dialog.locator('button[type="submit"]').isEnabled(), true);
+  assert.equal(await submit.evaluate(button => getComputedStyle(button).opacity), '1');
   assert.equal(uploads, 11);
+  await page.setViewportSize({width:390, height:844});
+  await page.evaluate(() => {
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function(...args) {
+      window.finishConversion = () => { HTMLCanvasElement.prototype.toBlob = toBlob; toBlob.apply(this, args); };
+    };
+    delete window.finishConversion;
+  });
+  await dialog.locator('input[type="file"]').setInputFiles([
+    {name:'clear.png', mimeType:'image/png', buffer:Buffer.from(result.pngBytes)},
+    {name:'queued.png', mimeType:'image/png', buffer:Buffer.from(result.pngBytes)}
+  ]);
+  assert.equal(await page.evaluate(() => typeof window.finishConversion), 'undefined');
+  assert.equal(await submit.isEnabled(), true);
+  await dialog.locator('.upload-clear').click();
+  await dialog.locator('input[type="file"]').setInputFiles({name:'mobile.png', mimeType:'image/png', buffer:Buffer.from(result.pngBytes)});
+  uploadGate = new Promise(resolve => { releaseUploads = resolve; });
+  await submit.click();
+  await page.waitForFunction(() => typeof window.finishConversion === 'function');
+  assert.equal(uploads, 11, 'mobile uploads must also wait for conversion');
+  await page.evaluate(() => window.finishConversion());
+  await dialog.locator('.upload-name').getByText('mobile.webp', {exact:true}).waitFor();
+  releaseUploads();
+  await dialog.locator('.upload-msg').getByText('1 uploaded, 0 failed').waitFor();
+  assert.equal(await submit.isEnabled(), true);
+  assert.equal(uploads, 12);
+  await page.evaluate(() => {
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function(callback) { toBlob.call(this, callback, 'image/png'); };
+  });
+  await dialog.locator('input[type="file"]').setInputFiles({name:'original.png', mimeType:'image/png', buffer:Buffer.from(result.pngBytes)});
+  await dialog.locator('#upload-album-title').fill('Original format check');
+  uploadGate = new Promise(resolve => { releaseUploads = resolve; });
+  await submit.click();
+  await dialog.locator('.upload-status').getByText('Uploading original…', {exact:true}).waitFor();
+  assert.equal(await dialog.locator('.upload-name').textContent(), 'original.png');
+  releaseUploads();
+  await dialog.locator('.upload-msg').getByText('1 uploaded, 0 failed').waitFor();
+  assert.equal(uploads, 13);
   assert.deepEqual(errors, []);
   console.log('image uploads ok: WebP bytes, size, dimensions, transparency, orientation, metadata, fallback, errors, passthrough');
 } finally {
