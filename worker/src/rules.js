@@ -66,6 +66,12 @@ export function cleanText(value, max, fallback) {
   return text || (fallback ?? '');
 }
 
+// cover-frame time in whole seconds, 0–86400; anything else falls back to 0
+export function posterTime(value) {
+  const t = Number(value);
+  return Number.isFinite(t) && t > 0 ? Math.round(Math.min(t, 86400)) : 0;
+}
+
 export function extensionFor(mime) {
   return EXTENSIONS[mime];
 }

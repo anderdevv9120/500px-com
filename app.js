@@ -104,10 +104,10 @@ async function prepareMedia(file) {
   return new File([body], name, {type:body.type, lastModified:file.lastModified});
 }
 
-function putMedia(albumId, body, {title}, onProgress) {
+function putMedia(albumId, body, {title, poster = 0}, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title})}`);
+    xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title, poster})}`);
     xhr.setRequestHeader('Content-Type', body.type);
     if (state.user) xhr.setRequestHeader('Authorization', `Bearer ${state.user.token}`);
     xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
@@ -423,8 +423,8 @@ async function lightbox(index = 0, automatic = false, photos) {
   activePhotos = photos || (await catalogPromise).photos;
   if (!activePhotos.length) return;
   photoIndex = (index + activePhotos.length) % activePhotos.length;
-  const dialog = openDialog('<img alt=""><div class="lightbox-caption"><button type="button" data-slide="previous" aria-label="Previous photo">←</button><span></span><button type="button" data-slide="next" aria-label="Next photo">→</button></div>','local-lightbox');
-  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); dialog.querySelector('.lightbox-caption span').textContent = `${photo.title} · ${photo.author}`; };
+  const dialog = openDialog(`${deleteButton('', 'Delete')}<img alt=""><div class="lightbox-caption"><button type="button" data-slide="previous" aria-label="Previous photo">←</button><span></span><button type="button" data-slide="next" aria-label="Next photo">→</button></div>`,'local-lightbox');
+  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); dialog.querySelector('.lightbox-caption span').textContent = `${photo.title} · ${photo.author}`; const del = dialog.querySelector('[data-delete-media]'); del.hidden = !isMine(photo); del.dataset.deleteMedia = photo.id || ''; del.setAttribute('aria-label', `Delete ${photo.title}`); };
   const move = step => { photoIndex = (photoIndex + step + activePhotos.length) % activePhotos.length; update(); };
   dialog.querySelector('[data-slide="previous"]').addEventListener('click',() => move(-1));
   dialog.querySelector('[data-slide="next"]').addEventListener('click',() => move(1));
@@ -461,6 +461,47 @@ async function collect(photo) {
   });
 }
 
+// ponytail: frames are decoded by seeking a hidden copy one at a time; fine for clips under the 95 MB cap
+async function filmstrip(src, duration, host, count = 10) {
+  const video = document.createElement('video');
+  const once = name => new Promise(resolve => video.addEventListener(name, resolve, {once: true}));
+  video.muted = true; video.preload = 'auto'; video.src = src;
+  await once('loadeddata');
+  for (let i = 0; i < count && host.isConnected; i++) {
+    video.currentTime = duration * (i + 0.5) / count;
+    await once('seeked');
+    const canvas = document.createElement('canvas');
+    canvas.width = 96; canvas.height = Math.round(96 * video.videoHeight / video.videoWidth) || 54;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    host.append(canvas);
+  }
+  video.removeAttribute('src'); video.load();
+}
+
+// thumbnail picker stacked over the upload dialog: large preview on top, filmstrip scrubber below.
+// Resolves with the chosen second, or null on Cancel / Esc.
+function pickCover(src, current = 0) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'local-dialog upload-cover-dialog';
+  dialog.setAttribute('aria-labelledby', 'upload-cover-title');
+  dialog.innerHTML = `<h2 id="upload-cover-title">Choose thumbnail</h2><video class="cover-preview" src="${escapeHTML(src)}" muted playsinline preload="auto"></video><div class="cover-scrub"><div class="cover-strip" aria-hidden="true"></div><input type="range" class="cover-range" min="0" max="0" step="1" value="0" aria-label="Thumbnail time"></div><p class="cover-time"></p><div class="cover-actions"><button type="button" class="secondary">Cancel</button><button type="button" class="primary">Save</button></div>`;
+  const video = dialog.querySelector('video'), range = dialog.querySelector('input'), time = dialog.querySelector('.cover-time');
+  const clock = t => [t / 60, t % 60].map(n => String(Math.floor(n)).padStart(2, '0')).join(':');
+  const show = () => { video.currentTime = Number(range.value); time.textContent = `${clock(Number(range.value))} / ${clock(Number(range.max))}`; };
+  video.addEventListener('loadedmetadata', () => {
+    range.max = Number.isFinite(video.duration) ? video.duration : 0; range.value = current; show();
+    if (Number(range.max)) filmstrip(src, Number(range.max), dialog.querySelector('.cover-strip'));
+  }, {once: true});
+  range.addEventListener('input', show);
+  return new Promise(resolve => {
+    let saved = null;
+    dialog.querySelector('.primary').addEventListener('click', () => { saved = Number(range.value); dialog.close(); });
+    dialog.querySelector('.secondary').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(saved); });
+    document.body.append(dialog); dialog.showModal(); range.focus();
+  });
+}
+
 async function upload() {
   if (!state.user) return login({then: upload});
   const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><input id="upload-file" class="upload-input" type="file" accept="image/*,video/*" multiple><label for="upload-file" class="upload-pick">Choose files</label><p class="upload-summary" hidden><span></span><button type="button" class="upload-clear">Clear all</button></p><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
@@ -475,22 +516,29 @@ async function upload() {
     : item.file.type.startsWith('video/') ? `<video class="upload-thumb" src="${item.url}" muted preload="metadata" playsinline></video><span class="upload-play" aria-hidden="true">▶</span>`
     : `<img class="upload-thumb" src="${item.url}" alt="">`;
   const size = bytes => bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
-  const lock = on => { picker.disabled = clear.disabled = on; all('.upload-remove', list).forEach(button => { button.disabled = on; }); };
+  const lock = on => { picker.disabled = clear.disabled = on; all('.upload-remove, .upload-cover-edit', list).forEach(control => { control.disabled = on; }); };
+  const coverButton = item => `<button type="button" class="upload-preview upload-cover-edit" aria-label="Choose thumbnail for ${escapeHTML(item.file.name)}">${preview(item)}<span class="upload-cover-overlay" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span></button>`;
   const drop = gone => gone.forEach(item => item.url && URL.revokeObjectURL(item.url));
   const render = () => {
-    list.innerHTML = items.map(item => `<li class="upload-row"><span class="upload-preview">${preview(item)}</span><button type="button" class="upload-remove" aria-label="Remove ${escapeHTML(item.file.name)}">✕</button><span class="upload-name" title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</span><span class="upload-size">${size(item.file.size)}</span><span class="upload-status"></span><progress max="1" value="0" hidden aria-label="Upload progress for ${escapeHTML(item.file.name)}"></progress></li>`).join('');
+    list.innerHTML = items.map(item => `<li class="upload-row">${!item.error && item.file.type.startsWith('video/') ? coverButton(item) : `<span class="upload-preview">${preview(item)}</span>`}<button type="button" class="upload-remove" aria-label="Remove ${escapeHTML(item.file.name)}">✕</button><span class="upload-name" title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</span><span class="upload-size">${size(item.file.size)}</span><span class="upload-status"></span><progress max="1" value="0" hidden aria-label="Upload progress for ${escapeHTML(item.file.name)}"></progress></li>`).join('');
     items.forEach((item, index) => {
       Object.assign(item, {row: list.children[index], status: list.children[index].querySelector('.upload-status'), bar: list.children[index].querySelector('progress')});
       setStatus(item, item.text, item.bad);
       item.row.querySelector('img')?.addEventListener('error', event => { event.target.outerHTML = icon(item.file.name); });
+      const video = item.row.querySelector('video');
+      if (video && item.poster) video.addEventListener('loadedmetadata', () => { video.currentTime = item.poster; }, {once: true});
     });
     summary.hidden = !items.length;
     summary.firstChild.textContent = `${items.length} file${items.length === 1 ? '' : 's'} · ${size(items.reduce((sum, item) => sum + item.file.size, 0))}`;
   };
-  list.addEventListener('click', event => {
-    const row = event.target.closest('.upload-remove')?.closest('.upload-row');
-    if (!row) return;
-    drop(items.splice([...list.children].indexOf(row), 1)); render();
+  list.addEventListener('click', async event => {
+    const index = [...list.children].indexOf(event.target.closest('.upload-row')), item = items[index];
+    if (!item) return;
+    if (event.target.closest('.upload-remove')) { drop(items.splice(index, 1)); render(); return; }
+    if (!event.target.closest('.upload-cover-edit')) return;
+    // the chosen time is sent with the upload as ?poster=
+    const time = await pickCover(item.url, item.poster);
+    if (time !== null) { item.poster = time; item.row.querySelector('video').currentTime = time; }
   });
   clear.addEventListener('click', () => { drop(items); items = []; render(); });
   dialog.addEventListener('close', () => drop(items));
@@ -539,7 +587,7 @@ async function upload() {
         item.bar.hidden = false; item.bar.value = 0;
         setStatus(item, /image\/(jpeg|png)/.test(item.source.type) && item.file.type !== 'image/webp' ? 'Uploading original…' : 'Uploading…');
         try {
-          await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100)}, fraction => { item.bar.value = fraction; });
+          await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), poster:item.poster}, fraction => { item.bar.value = fraction; });
           uploaded++; item.done = true; setStatus(item, 'Uploaded');
         } catch (error) { setStatus(item, error.message, true); }
         item.bar.hidden = true;
@@ -685,10 +733,16 @@ async function renderLicensingQuest() {
     <div role="tabpanel" id="licensing-entries" aria-labelledby="licensing-tab-1" data-quest-entries tabindex="0" hidden></div></div>`;
 }
 
+// media fragment: a preload="metadata" <video> shows the frame at t instead of frame 0
+const posterSrc = (src, t) => t ? `${src}#t=${t}` : src;
 const videoPlayBadge = '<span class="gallery-play-badge" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 3v18l15-9z"/></svg></span>';
+// guest uploads carry an id; seeded photos never do, so a username matching a seeded author can't claim them
+const isMine = item => Boolean(item.id && state.user && item.author === state.user.name);
+const trashIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>';
+const deleteButton = (id, label, attr = 'data-delete-media') => `<button type="button" class="local-delete" ${attr}="${escapeHTML(id)}" aria-label="${escapeHTML(label)}">${trashIcon}</button>`;
 function mediaFigure(item, index, {lightbox}) {
-  const title = escapeHTML(item.title), media = item.kind === 'video' ? `<video src="${escapeHTML(item.src)}" preload="metadata" muted playsinline></video>${videoPlayBadge}` : `<img src="${escapeHTML(item.src)}" alt="${title}" ${index>5?'loading="lazy"':''}>`;
-  return `<figure class="gallery-photo">${lightbox?`<button data-gallery-photo="${index}" aria-label="View ${title}">${media}</button>`:`<a data-gallery-photo="${index}" href="${escapeHTML(item.href)}">${media}</a>`}<figcaption>${lightbox?'':`<strong>${title}</strong>`}${escapeHTML(item.author)}</figcaption></figure>`;
+  const title = escapeHTML(item.title), media = item.kind === 'video' ? `<video src="${escapeHTML(posterSrc(item.src, item.poster))}" preload="metadata" muted playsinline></video>${videoPlayBadge}` : `<img src="${escapeHTML(item.src)}" alt="${title}" ${index>5?'loading="lazy"':''}>`;
+  return `<figure class="gallery-photo">${isMine(item)?deleteButton(item.id,`Delete ${item.title}`):''}${lightbox?`<button data-gallery-photo="${index}" aria-label="View ${title}">${media}</button>`:`<a data-gallery-photo="${index}" href="${escapeHTML(item.href)}">${media}</a>`}<figcaption>${lightbox?'':`<strong>${title}</strong>`}${escapeHTML(item.author)}</figcaption></figure>`;
 }
 
 async function renderGallery() {
@@ -705,7 +759,7 @@ async function renderGallery() {
     // Seeded galleries never touch the Worker; only this branch does.
     try{
       const album=query.get('album')?await api(`api/albums/${encodeURIComponent(query.get('album'))}`):null;
-      if(album?.media.length)gallery={title:album.title,description:album.description,owner:album.owner,photos:album.media.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}))};
+      if(album?.media.length)gallery={title:album.title,description:album.description,owner:album.owner,photos:album.media.map(m=>({id:m.id,src:m.url,title:m.title,author:m.author,kind:m.kind,poster:m.posterTime}))};
     }catch(error){
       if(error.status!==404){notFound('Guest uploads are unavailable right now.');return;}
     }
@@ -786,8 +840,8 @@ async function handleTab(button) {
       try{
         const only=profileUser?`user=${encodeURIComponent(profileUser)}`:'';
         const list=await api(works?`api/media?limit=200&${only}`:`api/albums?${only}`);
-        if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
-        panel.innerHTML=!list.length?'<p>No uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(album.cover.url)}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`);
+        if(works)galleryPhotos=list.map(m=>({id:m.id,src:m.url,title:m.title,author:m.author,kind:m.kind,poster:m.posterTime}));
+        panel.innerHTML=!list.length?'<p>No uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<div class="local-album">${state.user&&album.owner===state.user.name?deleteButton(album.id,`Delete album ${album.title}`,'data-delete-album'):''}<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(posterSrc(album.cover.url,album.cover.posterTime))}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a></div>`).join('')}</div>`);
         if(works)layoutGrids();
         if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());
       }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
@@ -802,6 +856,19 @@ async function handleTab(button) {
   }
 }
 
+async function removeUpload(button) {
+  const album=button.dataset.deleteAlbum;
+  button.disabled=true;
+  try{await api(album?`api/albums/${encodeURIComponent(album)}`:`api/media/${encodeURIComponent(button.dataset.deleteMedia)}`,{method:'DELETE',headers:authHeader()});}
+  catch(error){button.disabled=false;toast(error.message);return;}
+  document.querySelector('dialog[open]')?.close();
+  toast(album?'Album deleted.':'Deleted.');
+  // the Worker drops an album with its last item, so leave the album page instead of showing "not found"
+  if(pageName==='gallery'&&galleryPhotos.length===1){location.href=document.querySelector('[data-gallery-back]').href;return;}
+  if(pageName==='gallery')await renderGallery();
+  else await handleTab(document.querySelector('[role="tab"][aria-selected="true"]'));
+}
+
 async function handleClick(event) {
   const target=event.target instanceof Element?event.target:null;
   if(!target)return;
@@ -811,6 +878,8 @@ async function handleClick(event) {
     else await lightbox(0,true,galleryPhotos);
     return;
   }
+  const removal=target.closest('[data-delete-media],[data-delete-album]');
+  if(removal){await removeUpload(removal);return;}
   const galleryPhoto=target.closest('button[data-gallery-photo]');
   if(galleryPhoto){await lightbox(Number(galleryPhoto.dataset.galleryPhoto),false,galleryPhotos);return;}
   if(target.closest('[data-licensing-quest-share]')){await share(location.href,'Share this Quest');return;}

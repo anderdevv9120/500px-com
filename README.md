@@ -128,6 +128,8 @@ Later Worker changes only need `npm run deploy`. Schema changes also need `npm r
 
 Migration `0002_users.sql` adds accounts and **drops all existing guest albums and media rows**. Their R2 objects stay in `500px-guest-media`; empty the bucket in the Cloudflare dashboard if you want the space back. Run `npm run migrate:remote` before deploying the account-aware Worker.
 
+Migration `0003_poster_time.sql` adds `media.poster_time`, the cover frame (in seconds) chosen with the slider under each video in the upload dialog. Run `npm run migrate:remote` before deploying, or uploads will fail on the missing column.
+
 ### Admin deletes
 
 There is no moderation UI. Use the admin token to remove media or a whole album; R2 objects are deleted with their rows:

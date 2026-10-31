@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkUpload, cleanText, sniffMatches, sniffMediaType } from '../src/rules.js';
+import { checkUpload, cleanText, posterTime, sniffMatches, sniffMediaType } from '../src/rules.js';
 
 const MB = 1024 * 1024;
 const bytes = (arr) => Uint8Array.from(arr);
@@ -36,4 +36,12 @@ test('cleans text', () => {
   assert.equal(cleanText('x'.repeat(70), 60).length, 60);
   assert.equal(cleanText('   ', 40, 'Guest'), 'Guest');
   assert.equal(cleanText(undefined, 40, 'Guest'), 'Guest');
+});
+test('poster time', () => {
+  assert.equal(posterTime('3.6'), 4);
+  assert.equal(posterTime(null), 0);
+  assert.equal(posterTime('-5'), 0);
+  assert.equal(posterTime('NaN'), 0);
+  assert.equal(posterTime('Infinity'), 0);
+  assert.equal(posterTime('1e9'), 86400);
 });

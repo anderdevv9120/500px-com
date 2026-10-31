@@ -43,7 +43,7 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-dialog h2 { margin: 0 32px 24px 0; font-size: 22px; line-height: 1.4; font-weight: 500; }
 .local-dialog p { color: #aaa; }
 .local-dialog:not(.local-auth) label { display: block; margin: 16px 0 6px; }
-.local-dialog:not(.local-auth) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .local-dialog select, .local-dialog textarea { width: 100%; border: 1px solid #333; border-radius: 12px; padding: 12px 14px; box-sizing: border-box; background: #090909; color: white; font: inherit; }
+.local-dialog:not(.local-auth) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), .local-dialog select, .local-dialog textarea { width: 100%; border: 1px solid #333; border-radius: 12px; padding: 12px 14px; box-sizing: border-box; background: #090909; color: white; font: inherit; }
 .local-dialog input[type="checkbox"], .local-dialog input[type="radio"] { accent-color: white; }
 .local-dialog button.primary, .local-primary { border: 0; border-radius: 12px; background: #f9f9f9; color: #111; padding: 12px 20px; font: 500 14px/1.5 Poppins,sans-serif; cursor: pointer; }
 .local-dialog button.primary:disabled { opacity: .4; cursor: default; }
@@ -71,6 +71,25 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-size, .upload-status { color: #aaa; }
 .upload-row.bad .upload-status, .local-dialog .upload-msg.bad { color: #f36576; }
+button.upload-preview { width: 100%; border: 0; padding: 0; color: #fff; cursor: pointer; }
+button.upload-preview:disabled { cursor: default; }
+button.upload-preview:focus-visible { outline: 2px solid #f9f9f9; outline-offset: 2px; }
+.upload-cover-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #0009; opacity: 0; transition: opacity .15s; }
+.upload-cover-overlay svg { box-sizing: content-box; padding: 8px; border: 1px solid #fff6; border-radius: 50%; background: #000a; }
+button.upload-preview:not(:disabled):is(:hover, :focus-visible) .upload-cover-overlay { opacity: 1; }
+.upload-cover-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; }
+.cover-preview { display: block; width: 100%; max-height: 50dvh; border-radius: 12px; background: #000; object-fit: contain; }
+.cover-scrub { position: relative; height: 56px; margin-top: 16px; }
+.cover-strip { display: flex; height: 100%; overflow: hidden; border-radius: 8px; background: #262626; }
+.cover-strip canvas { flex: 1; min-width: 0; height: 100%; object-fit: cover; opacity: .6; }
+.cover-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; appearance: none; background: none; cursor: pointer; }
+.cover-range::-webkit-slider-runnable-track { height: 100%; background: none; }
+.cover-range::-webkit-slider-thumb { appearance: none; box-sizing: border-box; width: 16px; height: 56px; border: 3px solid #f9f9f9; border-radius: 6px; background: transparent; box-shadow: 0 0 0 1px #000a, inset 0 0 0 1px #000a; }
+.cover-range::-moz-range-track { background: none; }
+.cover-range::-moz-range-thumb { box-sizing: border-box; width: 16px; height: 56px; border: 3px solid #f9f9f9; border-radius: 6px; background: transparent; box-shadow: 0 0 0 1px #000a, inset 0 0 0 1px #000a; }
+.cover-range:focus-visible { outline: 2px solid #f9f9f9; outline-offset: 4px; border-radius: 8px; }
+.local-dialog .cover-time { margin: 8px 0 0; color: #f9f9f9; text-align: center; font-variant-numeric: tabular-nums; }
+.cover-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .upload-row progress { width: 100%; height: 6px; accent-color: #f9f9f9; }
 .local-dialog .upload-msg { margin: 14px 0 0; color: #f9f9f9; }
 .upload-msg a { color: #b4eef0; text-decoration: underline; }
@@ -110,6 +129,13 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-empty { padding: 60px 20px; text-align: center; color: #999; font: 400 15px Poppins,sans-serif; }
 .local-gallery-layout { padding: 32px 0; }
 .local-collection-card { position: relative; }
+.local-album { position: relative; }
+.local-album > a { display: block; }
+button.local-delete { position: absolute; top: 8px; left: 8px; z-index: 2; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: #000a; color: #fff; cursor: pointer; opacity: 0; transition: opacity .2s, background .2s; }
+.local-delete[hidden] { display: none; }
+.local-delete:hover, .local-lightbox .local-delete:hover { background: #d32f2f; }
+.gallery-photo:hover .local-delete, .local-album:hover .local-delete, .local-delete:focus-visible { opacity: 1; }
+@media (hover: none) { button.local-delete { opacity: 1; } }
 .local-collection-card > span { position: absolute; bottom: 15px; left: 15px; color: #fff; text-shadow: 0 1px 8px #000; font-size: 18px; }
 .local-comment-form { display: flex; width: 100%; gap: 10px; }
 .local-comment-form input { border: 0; outline: 0; flex: 1; min-width: 0; color: #fff; background: transparent; font: inherit; }
@@ -121,6 +147,7 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-lightbox .lightbox-caption { display: flex; justify-content: space-between; gap: 20px; padding: 12px 18px; }
 .local-lightbox button { background: #222; color: white; border: 0; border-radius: 8px; padding: 6px 14px; font: inherit; }
 .local-lightbox .local-close { background: #0008; z-index: 2; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; font-size: 36px; line-height: 1; }
+.local-lightbox .local-delete { opacity: 1; top: 12px; left: 16px; width: 48px; height: 48px; padding: 0; border-radius: 50%; background: #0008; }
 .local-upload-preview { display: block; max-width: 100%; max-height: 240px; margin-top: 16px; object-fit: contain; }
 .local-selection { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 16px 0; }
 .local-selection button { border: 2px solid transparent; padding: 0; background: transparent; border-radius: 6px; overflow: hidden; cursor: pointer; }
