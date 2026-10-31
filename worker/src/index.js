@@ -170,7 +170,10 @@ async function serveMedia(request, env, key) {
   headers.set('Accept-Ranges', 'bytes');
   headers.set('Cache-Control', 'public, max-age=31536000, immutable');
   if (request.headers.has('Range') && object.range) {
-    const { offset, length } = object.range;
+    // R2Range may echo the request shape: {offset, length?} | {offset?, length} | {suffix}
+    const r = object.range;
+    const offset = r.offset ?? (r.suffix != null ? object.size - r.suffix : 0);
+    const length = r.length ?? object.size - offset;
     headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
     return new Response(object.body, { status: 206, headers });
   }

@@ -90,6 +90,15 @@ const postAlbum = (body) =>
   assert.equal(ranged.status, 206);
   assert.equal((await ranged.arrayBuffer()).byteLength, 4);
   assert.equal(ranged.headers.get('content-range'), `bytes 0-3/${png.length}`);
+  const n = png.length;
+  const open = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=0-' } });
+  assert.equal(open.status, 206);
+  assert.equal(open.headers.get('content-range'), `bytes 0-${n - 1}/${n}`);
+  assert.equal((await open.arrayBuffer()).byteLength, n);
+  const suffix = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=-4' } });
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers.get('content-range'), `bytes ${n - 4}-${n - 1}/${n}`);
+  assert.equal((await suffix.arrayBuffer()).byteLength, 4);
   assert.equal((await call(`/media/${album.id}/missing.png`)).status, 404);
 
   const fake = await put(album.id, 'title=fake', 'image/jpeg', Buffer.from('not an image at all'));
