@@ -1,0 +1,15 @@
+{
+  "name": "500px-guest-uploads-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply 500px-guest-uploads --local",
+    "migrate:remote": "wrangler d1 migrations apply 500px-guest-uploads --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.156.0"
+  }
+}

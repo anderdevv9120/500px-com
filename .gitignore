@@ -3,3 +3,6 @@ node_modules/
 screenshots/
 *.log
 _site/
+
+worker/node_modules/
+worker/.wrangler/
