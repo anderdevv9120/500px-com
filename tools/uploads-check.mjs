@@ -13,9 +13,17 @@ const origin=process.env.SITE_URL||'http://127.0.0.1:5000';
 const api=process.env.API_URL||'http://127.0.0.1:8787';
 const errors=[];
 
-// Fixtures: the real JPEG with an APP1 "Exif" segment (carrying GPSMARKER) spliced in after SOI.
+// Fixtures: the real JPEG with an APP1 "Exif" segment spliced in after SOI. Its big-endian TIFF IFD0 holds
+// Orientation=6, followed by the ASCII marker GPSMARKER.
 const base=await fs.readFile('assets/0010-0.jpg');
-const exif=Buffer.concat([Buffer.from('Exif\0\0GPSMARKER','latin1')]);
+const exif=Buffer.concat([Buffer.from('Exif\0\0'),Buffer.from('MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0','latin1'),Buffer.from('GPSMARKER')]);
+const orientationOf=bytes=>{ // reads Orientation from the first APP1 right after SOI
+  assert.deepEqual([...bytes.subarray(0,4)],[0xFF,0xD8,0xFF,0xE1]);
+  const t=12,le=bytes[t]===0x49,dv=new DataView(bytes.buffer,bytes.byteOffset);
+  const ifd=t+dv.getUint32(t+4,le);
+  for(let n=dv.getUint16(ifd,le),e=ifd+2;n-->0;e+=12)if(dv.getUint16(e,le)===0x0112)return dv.getUint16(e+8,le);
+};
+assert.equal(orientationOf(Buffer.concat([base.subarray(0,2),Buffer.from([0xFF,0xE1,0,exif.length+2]),exif])),6);
 const app1=Buffer.concat([Buffer.from([0xFF,0xE1,0,exif.length+2]),exif]);
 const jpeg=Buffer.concat([base.subarray(0,2),app1,base.subarray(2)]);
 assert.ok(jpeg.includes('GPSMARKER'));
@@ -62,12 +70,27 @@ try {
   const bytes=Buffer.from(await (await fetch(image.url)).arrayBuffer());
   assert.ok(bytes.length>1000&&bytes[0]===0xFF&&bytes[1]===0xD8);
   assert.ok(!bytes.includes('GPSMARKER'),'GPSMARKER survived upload');
+  assert.equal(orientationOf(bytes),6,'EXIF orientation lost');
 
   // reopening lists the new album
   await page.goto(origin+'/upload',{waitUntil:'networkidle'});
   const reopened=page.locator('dialog[open]');
   await reopened.waitFor();
   await reopened.locator('#upload-album option',{hasText:'Check album (2)'}).waitFor({state:'attached'});
+
+  // a failed album-list load stays visible after picking files, and submit stays disabled
+  const broken=await context.newPage();
+  broken.on('pageerror',error=>errors.push(error.message));
+  await broken.route(url=>url.pathname==='/api/albums',route=>route.request().method()==='GET'
+    ?route.fulfill({status:500,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({error:'Album list exploded'})})
+    :route.continue());
+  await broken.goto(origin+'/upload',{waitUntil:'networkidle'});
+  const brokenDialog=broken.locator('dialog[open]');
+  await brokenDialog.locator('.upload-msg').getByText('Album list exploded').waitFor();
+  await brokenDialog.locator('input[type="file"]').setInputFiles([files[0]]);
+  await brokenDialog.locator('.upload-row .upload-status').getByText('Ready').waitFor();
+  assert.equal(await brokenDialog.locator('.upload-msg').textContent(),'Album list exploded');
+  assert.equal(await brokenDialog.locator('form button[type="submit"]').isDisabled(),true);
   assert.deepEqual(errors,[]);
   console.log('upload dialog ok');
 } finally {

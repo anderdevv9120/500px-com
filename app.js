@@ -46,16 +46,29 @@ function clientCheck(file) {
   return file.size > mb * 1024 * 1024 ? `Too large (max ${mb} MB).` : null;
 }
 
-// Drops APP1 (EXIF/XMP) segments that precede the scan data; anything that is not a JPEG passes through unchanged.
+// Drops APP1 (EXIF/XMP) segments that precede the scan data, so GPS never leaves the browser, then re-adds a minimal
+// EXIF APP1 holding only a non-default Orientation so portraits stay upright. Non-JPEG input passes through unchanged.
 function stripJpegExif(buffer) {
-  const b = new Uint8Array(buffer);
+  const b = new Uint8Array(buffer), view = new DataView(buffer);
   if (b[0] !== 0xFF || b[1] !== 0xD8) return new Blob([b]);
   const parts = [b.subarray(0, 2)];
-  let i = 2;
+  let i = 2, orientation = 1, le = false;
   while (i + 4 <= b.length && b[i] === 0xFF && b[i + 1] !== 0xFF && b[i + 1] !== 0xDA) {
     const end = i + 2 + ((b[i + 2] << 8) | b[i + 3]);
     if (b[i + 1] !== 0xE1) parts.push(b.subarray(i, end));
+    else if (orientation === 1 && String.fromCharCode(...b.subarray(i + 4, i + 8)) === 'Exif') try {
+      const tiff = i + 10, ifd = tiff + view.getUint32(tiff + 4, le = b[tiff] === 0x49);
+      for (let n = view.getUint16(ifd, le), entry = ifd + 2; n-- > 0; entry += 12) if (view.getUint16(entry, le) === 0x0112) { const value = view.getUint16(entry + 8, le); if (value > 1 && value < 9) orientation = value; }
+    } catch { /* malformed EXIF is dropped */ }
     i = end;
+  }
+  if (orientation > 1) {
+    // APP1 = "Exif\0\0", TIFF header in the original byte order, IFD0 with one Orientation SHORT entry, no next IFD.
+    const segment = new Uint8Array(36), out = new DataView(segment.buffer);
+    segment.set([0xFF, 0xE1, 0, 34, 0x45, 0x78, 0x69, 0x66, 0, 0, le ? 0x49 : 0x4D, le ? 0x49 : 0x4D]);
+    out.setUint16(12, 42, le); out.setUint32(14, 8, le); out.setUint16(18, 1, le);
+    out.setUint16(20, 0x0112, le); out.setUint16(22, 3, le); out.setUint32(24, 1, le); out.setUint16(28, orientation, le);
+    parts.splice(1, 0, segment);
   }
   parts.push(b.subarray(i));
   return new Blob(parts);
@@ -397,7 +410,7 @@ async function upload() {
     list.innerHTML = files.map(file => `<li class="upload-row"><span class="upload-name">${escapeHTML(file.name)}</span><span>${(file.size / 1048576).toFixed(1)} MB</span><span class="upload-status"></span><progress max="1" value="0" hidden></progress></li>`).join('');
     items = files.map((file, index) => ({file, error: clientCheck(file), row: list.children[index], status: list.children[index].querySelector('.upload-status'), bar: list.children[index].querySelector('progress')}));
     items.forEach(item => setStatus(item, item.error || 'Ready', item.error));
-    submit.disabled = blocked; say('');
+    submit.disabled = blocked; if (!blocked) say('');
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
