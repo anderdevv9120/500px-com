@@ -31,9 +31,10 @@ const uploadApi = ['localhost','127.0.0.1'].includes(location.hostname) ? 'http:
 const uploadLimits = {'image/jpeg':20,'image/png':20,'image/webp':20,'image/gif':20,'image/avif':20,'video/mp4':95,'video/webm':95,'video/quicktime':95};
 const uploadDown = 'Uploads are unavailable right now';
 
+// path has no leading slash: export-pages rebase() prefixes root-relative literals with the Pages base path
 async function api(path, options) {
   let response;
-  try { response = await fetch(uploadApi + path, options); } catch { throw Error(uploadDown); }
+  try { response = await fetch(`${uploadApi}/${path}`, options); } catch { throw Error(uploadDown); }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(Error(body.error || uploadDown), {status: response.status});
   return body;
@@ -402,7 +403,7 @@ async function upload() {
   const say = (text, bad) => { msg.textContent = text; msg.classList.toggle('bad', Boolean(bad)); };
   const setStatus = (item, text, bad) => { item.status.textContent = text; item.row.classList.toggle('bad', Boolean(bad)); };
   all('[name="album-mode"]', dialog).forEach(radio => radio.addEventListener('change', () => { const existing = existingRadio.checked; newPane.hidden = existing; existingPane.hidden = !existing; titleInput.required = !existing; }));
-  api('/api/albums').then(albums => {
+  api('api/albums').then(albums => {
     select.innerHTML = albums.map(album => `<option value="${escapeHTML(album.id)}">${escapeHTML(album.title)} (${album.count})</option>`).join('');
     existingRadio.disabled = !albums.length;
   }, error => { blocked = true; submit.disabled = true; existingRadio.disabled = true; say(error.message, true); });
@@ -421,7 +422,7 @@ async function upload() {
     submit.disabled = true; say('');
     let albumId = select.value;
     try {
-      if (!existingRadio.checked) albumId = (await api('/api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
+      if (!existingRadio.checked) albumId = (await api('api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
     } catch (error) { say(error.message, true); submit.disabled = blocked; return; }
     const author = dialog.querySelector('#upload-author').value.trim();
     let uploaded = 0;
@@ -580,7 +581,7 @@ async function renderGallery() {
   if(isGuest){
     // Seeded galleries never touch the Worker; only this branch does.
     try{
-      const album=query.get('album')?await api(`/api/albums/${encodeURIComponent(query.get('album'))}`):null;
+      const album=query.get('album')?await api(`api/albums/${encodeURIComponent(query.get('album'))}`):null;
       if(album?.media.length)gallery={title:album.title,description:album.description,photos:album.media.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}))};
     }catch(error){
       if(error.status!==404){notFound('Guest uploads are unavailable right now.');return;}
@@ -650,7 +651,7 @@ async function handleTab(button) {
       const bar=document.querySelector('.MuiTabs-indicator');if(bar){bar.style.left=`${button.offsetLeft}px`;bar.style.width=`${button.offsetWidth}px`;}
       const works=text.startsWith('Works');
       try{
-        const list=await api(works?'/api/media?limit=200':'/api/albums');
+        const list=await api(works?'api/media?limit=200':'api/albums');
         if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
         panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':`<div class="local-grid">${works?galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join(''):list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<video src="${escapeHTML(album.cover.url)}" preload="metadata" muted></video>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`;
         if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());

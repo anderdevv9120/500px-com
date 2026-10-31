@@ -213,6 +213,8 @@ try {
   // static export includes the guest routes
   execSync('npm run export:pages',{env:{...process.env,PAGES_BASE_PATH:'/500px-com'},stdio:'pipe'});
   for(const route of ['p/guest','galleries/guest'])await fs.access(`_site/${route}/index.html`);
+  // rebase() prefixes root-relative literals; API paths must reach the Worker unprefixed
+  assert.ok(!(await fs.readFile('_site/app.js','utf8')).includes('/500px-com/api/'),'exported app.js sends API calls to /500px-com/api/');
   console.log('guest profile ok');
 } finally {
   await browser.close();
