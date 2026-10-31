@@ -138,3 +138,46 @@ const postAlbum = (body) =>
   assert.equal(typeof (await limited.json()).error, 'string');
   console.log('media: ok');
 }
+
+// ---- admin ----
+{
+  const del = (path, token) =>
+    call(path, { method: 'DELETE', headers: token === undefined ? {} : { Authorization: `Bearer ${token}` } });
+  const png = await readFile(new URL('../assets/0072-zeiss-badge-hGfrjZ9e.png', import.meta.url));
+  const tiny = Buffer.concat([png.subarray(0, 8), Buffer.alloc(24)]);
+
+  // the media section left the rate limit full and storage near the cap: free it by deleting its rows
+  const leftovers = await (await call('/api/media')).json();
+  assert.ok(leftovers.length >= 1);
+  const [first, ...rest] = leftovers;
+  const firstPath = `/api/media/${first.id}`;
+  assert.equal((await del(firstPath)).status, 401);
+  assert.equal((await del(firstPath, 'wrong')).status, 401);
+  assert.equal((await call(new URL(first.url).pathname)).status, 200, 'rejected delete must not remove the object');
+  assert.equal((await del(firstPath, ADMIN_TOKEN)).status, 204);
+  assert.equal((await call(new URL(first.url).pathname)).status, 404);
+  assert.equal((await del(firstPath, ADMIN_TOKEN)).status, 404);
+  for (const m of rest) assert.equal((await del(`/api/media/${m.id}`, ADMIN_TOKEN)).status, 204);
+  assert.equal((await (await call('/api/media')).json()).length, 0);
+
+  const album = await (await postAlbum({ title: 'Doomed' })).json();
+  const urls = [];
+  for (const body of [png.subarray(0, 100), tiny]) {
+    const res = await call(`/api/albums/${album.id}/media?title=d`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body });
+    assert.equal(res.status, 201);
+    urls.push(new URL((await res.json()).url).pathname);
+  }
+  const albumPath = `/api/albums/${album.id}`;
+  assert.equal((await del(albumPath)).status, 401);
+  assert.equal((await del(albumPath, 'wrong')).status, 401);
+  assert.equal((await call(albumPath)).status, 200);
+  assert.equal((await del(albumPath, ADMIN_TOKEN)).status, 204);
+  assert.equal((await call(albumPath)).status, 404);
+  for (const u of urls) assert.equal((await call(u)).status, 404);
+  assert.equal((await del(albumPath, ADMIN_TOKEN)).status, 404);
+
+  assert.equal((await del('/api/media/does-not-exist', ADMIN_TOKEN)).status, 404);
+  assert.equal((await del('/api/albums/does-not-exist', ADMIN_TOKEN)).status, 404);
+  assert.equal((await del('/api/media/does-not-exist')).status, 401, 'auth is checked before existence');
+  console.log('admin: ok');
+}

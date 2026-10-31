@@ -180,6 +180,37 @@ async function serveMedia(request, env, key) {
   return new Response(object.body, { headers });
 }
 
+const sha256 = async (text) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+
+// compare digests (equal length, no early exit) so neither the token's content nor its length leaks via timing
+async function isAdmin(request, env) {
+  if (!env.ADMIN_TOKEN) return false;
+  const given = (request.headers.get('Authorization') || '').match(/^Bearer (.*)$/)?.[1] ?? '';
+  const [a, b] = await Promise.all([sha256(given), sha256(env.ADMIN_TOKEN)]);
+  return a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) === 0;
+}
+
+async function deleteAlbum(env, id) {
+  const album = await env.DB.prepare('SELECT id FROM albums WHERE id = ?').bind(id).first();
+  if (!album) return error(404, 'Album not found');
+  const { results } = await env.DB.prepare('SELECT r2_key FROM media WHERE album_id = ?').bind(id).all();
+  // ponytail: R2 delete takes up to 1000 keys per call; fine for a demo capped by storage, chunk if it ever matters
+  if (results.length) await env.MEDIA.delete(results.map((r) => r.r2_key));
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM media WHERE album_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM albums WHERE id = ?').bind(id),
+  ]);
+  return json(null, 204);
+}
+
+async function deleteMedia(env, id) {
+  const row = await env.DB.prepare('SELECT r2_key FROM media WHERE id = ?').bind(id).first();
+  if (!row) return error(404, 'Media not found');
+  await env.MEDIA.delete(row.r2_key);
+  await env.DB.prepare('DELETE FROM media WHERE id = ?').bind(id).run();
+  return json(null, 204);
+}
+
 async function route(request, env) {
   const url = new URL(request.url);
   const { origin, pathname } = url;
@@ -195,6 +226,11 @@ async function route(request, env) {
   const mediaMatch = pathname.match(/^\/media\/(.+)$/);
   if (mediaMatch && method === 'GET') return serveMedia(request, env, mediaMatch[1]);
   if (pathname === '/api/media' && method === 'GET') return listMedia(env, origin, url);
+  const mediaIdMatch = pathname.match(/^\/api\/media\/([^/]+)$/);
+  if ((albumMatch || mediaIdMatch) && method === 'DELETE') {
+    if (!(await isAdmin(request, env))) return error(401, 'Admin token required');
+    return albumMatch ? deleteAlbum(env, albumMatch[1]) : deleteMedia(env, mediaIdMatch[1]);
+  }
   return error(404, 'Not found');
 }
 
