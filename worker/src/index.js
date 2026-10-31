@@ -35,23 +35,26 @@ const toAlbum = (row, origin) => ({
   title: row.title,
   description: row.description,
   createdAt: row.created_at,
+  owner: row.username,
   count: row.count,
   cover: row.cover_key ? { url: `${origin}/media/${row.cover_key}`, kind: row.cover_kind } : null,
 });
 
-async function listAlbums(env, origin) {
+// ?user=<username> narrows the public listings to one account
+async function listAlbums(env, origin, url) {
   const { results } = await env.DB.prepare(
-    `SELECT a.*, COUNT(m.id) AS count,
+    `SELECT a.*, u.username, COUNT(m.id) AS count,
        (SELECT r2_key FROM media WHERE album_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS cover_key,
        (SELECT kind FROM media WHERE album_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS cover_kind
-     FROM albums a JOIN media m ON m.album_id = a.id
+     FROM albums a JOIN media m ON m.album_id = a.id JOIN users u ON u.id = a.user_id
+     WHERE ?1 IS NULL OR u.username = ?1
      GROUP BY a.id ORDER BY a.created_at DESC, a.rowid DESC`,
-  ).all();
+  ).bind(url.searchParams.get('user')).all();
   return json(results.map((r) => toAlbum(r, origin)));
 }
 
 async function getAlbum(env, origin, id) {
-  const album = await env.DB.prepare('SELECT * FROM albums WHERE id = ?').bind(id).first();
+  const album = await env.DB.prepare('SELECT a.*, u.username FROM albums a JOIN users u ON u.id = a.user_id WHERE a.id = ?').bind(id).first();
   if (!album) return error(404, 'Album not found');
   const { results } = await env.DB.prepare(
     'SELECT * FROM media WHERE album_id = ? ORDER BY created_at, rowid',
@@ -61,6 +64,7 @@ async function getAlbum(env, origin, id) {
     id: album.id,
     title: album.title,
     description: album.description,
+    owner: album.username,
     createdAt: album.created_at,
     media: results.map((r) => toMedia(r, origin)),
   });
@@ -70,21 +74,18 @@ async function listMedia(env, origin, url) {
   const asked = parseInt(url.searchParams.get('limit'), 10);
   const limit = Number.isNaN(asked) ? 200 : Math.min(Math.max(asked, 1), 200);
   const { results } = await env.DB.prepare(
-    'SELECT * FROM media ORDER BY created_at DESC, rowid DESC LIMIT ?',
-  ).bind(limit).all();
+    `SELECT m.* FROM media m JOIN albums a ON a.id = m.album_id JOIN users u ON u.id = a.user_id
+     WHERE ?2 IS NULL OR u.username = ?2 ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?1`,
+  ).bind(limit, url.searchParams.get('user')).all();
   return json(results.map((r) => toMedia(r, origin)));
 }
 
-async function createAlbum(request, env) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return error(400, 'Request body must be valid JSON');
-  }
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return error(400, 'Request body must be a JSON object');
-  }
+const readJson = (request) => request.json()
+  .then((body) => (body && typeof body === 'object' && !Array.isArray(body) ? body : null), () => null);
+
+async function createAlbum(request, env, user) {
+  const body = await readJson(request);
+  if (!body) return error(400, 'Request body must be a JSON object');
   const title = cleanText(body.title, 60);
   if (!title) return error(400, 'Album title is required');
   const album = {
@@ -93,23 +94,93 @@ async function createAlbum(request, env) {
     description: cleanText(body.description, 280),
     created_at: Date.now(),
   };
-  await env.DB.prepare('INSERT INTO albums (id, title, description, created_at) VALUES (?, ?, ?, ?)')
-    .bind(album.id, album.title, album.description, album.created_at)
+  await env.DB.prepare('INSERT INTO albums (id, user_id, title, description, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(album.id, user.id, album.title, album.description, album.created_at)
     .run();
-  return json(toAlbum({ ...album, count: 0 }, ''), 201);
+  return json(toAlbum({ ...album, username: user.username, count: 0 }, ''), 201);
 }
 
 const HOUR_MS = 60 * 60 * 1000;
 
-async function ipHash(request) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'local';
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+const encode = (text) => new TextEncoder().encode(text);
+const hex = (buffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
+const sha256 = async (text) => new Uint8Array(await crypto.subtle.digest('SHA-256', encode(text)));
+// equal-length digests, no early exit: neither content nor length leaks via timing
+const sameDigest = (a, b) => a.length === b.length && a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) === 0;
+const bearer = (request) => (request.headers.get('Authorization') || '').match(/^Bearer (.*)$/)?.[1] ?? '';
+
+const ipHash = async (request) => hex(await sha256(request.headers.get('CF-Connecting-IP') || 'local'));
+
+// ---- accounts ----
+// ponytail: 50k PBKDF2 rounds (~7 ms) to fit the free plan's 10 ms CPU budget; raise PBKDF2_ROUNDS
+// (workerd caps it at 100k) on a paid plan. Rounds are stored per hash, so old passwords keep working.
+const PBKDF2_ROUNDS = 50000;
+const SESSION_MS = 30 * 24 * HOUR_MS;
+
+async function pbkdf2(password, salt, rounds) {
+  const key = await crypto.subtle.importKey('raw', encode(password), 'PBKDF2', false, ['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: encode(salt), iterations: rounds }, key, 256));
 }
 
-async function uploadMedia(request, env, origin, url, albumId) {
-  const album = await env.DB.prepare('SELECT id FROM albums WHERE id = ?').bind(albumId).first();
+async function startSession(env, user) {
+  const token = hex(crypto.getRandomValues(new Uint8Array(32)));
+  await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at) VALUES (?, ?, ?)')
+    .bind(hex(await sha256(token)), user.id, Date.now()).run();
+  return { token, username: user.username };
+}
+
+async function readCredentials(request) {
+  const body = await readJson(request);
+  const username = cleanText(body?.username, 30);
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!username) return { invalid: error(400, 'Username is required') };
+  if (password.length < 6 || password.length > 200) return { invalid: error(400, 'Password must be 6–200 characters') };
+  return { username, password };
+}
+
+async function signup(request, env) {
+  const { username, password, invalid } = await readCredentials(request);
+  if (invalid) return invalid;
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+  const user = { id: crypto.randomUUID(), username };
+  try {
+    await env.DB.prepare('INSERT INTO users (id, username, password, created_at) VALUES (?, ?, ?, ?)')
+      .bind(user.id, username, `${PBKDF2_ROUNDS}:${salt}:${await pbkdf2(password, salt, PBKDF2_ROUNDS)}`, Date.now()).run();
+  } catch (err) {
+    if (/UNIQUE/.test(err.message)) return error(409, 'That username is taken');
+    throw err;
+  }
+  return json(await startSession(env, user), 201);
+}
+
+// ponytail: no login throttling; add a per-IP attempt counter (like the upload limit) if accounts get abused
+async function login(request, env) {
+  const { username, password, invalid } = await readCredentials(request);
+  if (invalid) return invalid;
+  const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
+  if (!user) return error(401, 'Wrong username or password');
+  const [rounds, salt, stored] = user.password.split(':');
+  if (!sameDigest(encode(await pbkdf2(password, salt, Number(rounds))), encode(stored))) return error(401, 'Wrong username or password');
+  return json(await startSession(env, user));
+}
+
+async function logout(request, env) {
+  await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(hex(await sha256(bearer(request)))).run();
+  return json(null, 204);
+}
+
+async function currentUser(request, env) {
+  const token = bearer(request);
+  if (!token) return null;
+  return env.DB.prepare(
+    'SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.created_at > ?',
+  ).bind(hex(await sha256(token)), Date.now() - SESSION_MS).first();
+}
+
+async function uploadMedia(request, env, origin, url, albumId, user) {
+  const album = await env.DB.prepare('SELECT user_id FROM albums WHERE id = ?').bind(albumId).first();
   if (!album) return error(404, 'Album not found');
+  if (album.user_id !== user.id) return error(403, 'You can only upload to your own albums');
 
   const lengthHeader = request.headers.get('Content-Length');
   if (lengthHeader === null) return error(411, 'Content-Length header is required');
@@ -148,7 +219,7 @@ async function uploadMedia(request, env, origin, url, albumId) {
       content_type: contentType,
       size: stored.size,
       title: cleanText(url.searchParams.get('title'), 100, 'Untitled'),
-      author: cleanText(url.searchParams.get('author'), 40, 'Guest'),
+      author: user.username,
       created_at: Date.now(),
     };
     await env.DB.prepare(
@@ -180,14 +251,10 @@ async function serveMedia(request, env, key) {
   return new Response(object.body, { headers });
 }
 
-const sha256 = async (text) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
-
-// compare digests (equal length, no early exit) so neither the token's content nor its length leaks via timing
 async function isAdmin(request, env) {
   if (!env.ADMIN_TOKEN) return false;
-  const given = (request.headers.get('Authorization') || '').match(/^Bearer (.*)$/)?.[1] ?? '';
-  const [a, b] = await Promise.all([sha256(given), sha256(env.ADMIN_TOKEN)]);
-  return a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) === 0;
+  const [a, b] = await Promise.all([sha256(bearer(request)), sha256(env.ADMIN_TOKEN)]);
+  return sameDigest(a, b);
 }
 
 async function deleteAlbum(env, id) {
@@ -217,12 +284,19 @@ async function route(request, env) {
   const { method } = request;
   if (method === 'OPTIONS') return json(null, 204);
 
+  if (method === 'POST' && pathname === '/api/signup') return signup(request, env);
+  if (method === 'POST' && pathname === '/api/login') return login(request, env);
+  if (method === 'POST' && pathname === '/api/logout') return logout(request, env);
+
   const albumMatch = pathname.match(/^\/api\/albums\/([^/]+)$/);
-  if (pathname === '/api/albums' && method === 'GET') return listAlbums(env, origin);
-  if (pathname === '/api/albums' && method === 'POST') return createAlbum(request, env);
-  if (albumMatch && method === 'GET') return getAlbum(env, origin, albumMatch[1]);
   const uploadMatch = pathname.match(/^\/api\/albums\/([^/]+)\/media$/);
-  if (uploadMatch && method === 'PUT') return uploadMedia(request, env, origin, url, uploadMatch[1]);
+  if (pathname === '/api/albums' && method === 'GET') return listAlbums(env, origin, url);
+  if (albumMatch && method === 'GET') return getAlbum(env, origin, albumMatch[1]);
+  if ((pathname === '/api/albums' && method === 'POST') || (uploadMatch && method === 'PUT')) {
+    const user = await currentUser(request, env);
+    if (!user) return error(401, 'Log in to upload');
+    return uploadMatch ? uploadMedia(request, env, origin, url, uploadMatch[1], user) : createAlbum(request, env, user);
+  }
   const mediaMatch = pathname.match(/^\/media\/(.+)$/);
   if (mediaMatch && method === 'GET') return serveMedia(request, env, mediaMatch[1]);
   if (pathname === '/api/media' && method === 'GET') return listMedia(env, origin, url);

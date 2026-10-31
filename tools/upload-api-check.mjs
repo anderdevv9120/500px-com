@@ -17,8 +17,18 @@ const UPLOADS_PER_HOUR = Number(process.env.CHECK_UPLOADS_PER_HOUR);
 const STORAGE_CAP = Number(process.env.CHECK_STORAGE_CAP);
 
 const call = (path, init) => fetch(API + path, init);
-const postAlbum = (body) =>
-  call('/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const postJson = (path, body, token) => call(path, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },
+  body: JSON.stringify(body),
+});
+const signup = async (username, password = 'secret1') => {
+  const res = await postJson('/api/signup', { username, password });
+  assert.equal(res.status, 201);
+  return (await res.json()).token;
+};
+let token; // the account every section below uploads as
+const postAlbum = (body, as = token) => postJson('/api/albums', body, as);
 
 // ---- smoke (production-safe: everything it creates is deleted) ----
 //   API_URL=https://<worker>.workers.dev ADMIN_TOKEN=<secret> node tools/upload-api-check.mjs --smoke
@@ -29,12 +39,13 @@ if (process.argv.includes('--smoke')) {
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get('access-control-allow-origin'), site);
 
+  token = await signup(`smoke-${Date.now()}`); // ponytail: the smoke account stays behind (no user delete endpoint)
   const created = await postAlbum({ title: 'Smoke test' });
   assert.equal(created.status, 201);
   const albumPath = `/api/albums/${(await created.json()).id}`;
   try {
     const png = await readFile(new URL('../assets/0072-zeiss-badge-hGfrjZ9e.png', import.meta.url));
-    const res = await call(`${albumPath}/media?title=smoke`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+    const res = await call(`${albumPath}/media?title=smoke`, { method: 'PUT', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${token}` }, body: png });
     assert.equal(res.status, 201);
     const media = await res.json();
     const albums = await (await call('/api/albums')).json();
@@ -51,6 +62,34 @@ if (process.argv.includes('--smoke')) {
   process.exit(0);
 }
 
+// ---- accounts ----
+{
+  const name = `alice${Date.now()}`;
+  token = await signup(name);
+  assert.match(token, /^[0-9a-f]{64}$/);
+
+  assert.equal((await postJson('/api/signup', { username: name.toUpperCase(), password: 'secret1' })).status, 409, 'usernames are case-insensitive');
+  assert.equal((await postJson('/api/signup', { username: 'bob', password: '12345' })).status, 400);
+  assert.equal((await postJson('/api/signup', { username: '   ', password: 'secret1' })).status, 400);
+  assert.equal((await postJson('/api/signup', ['nope'])).status, 400);
+
+  const ok = await postJson('/api/login', { username: name, password: 'secret1' });
+  assert.equal(ok.status, 200);
+  const session = await ok.json();
+  assert.equal(session.username, name);
+  assert.notEqual(session.token, token);
+  assert.equal((await postJson('/api/login', { username: name, password: 'secret2' })).status, 401);
+  assert.equal((await postJson('/api/login', { username: 'nobody-here', password: 'secret1' })).status, 401);
+
+  assert.equal((await postAlbum({ title: 'x' }, null)).status, 401);
+  assert.equal((await postAlbum({ title: 'x' }, 'f'.repeat(64))).status, 401);
+  assert.equal((await postAlbum({ title: 'x' }, session.token)).status, 201);
+  assert.equal((await call('/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${session.token}` } })).status, 204);
+  assert.equal((await postAlbum({ title: 'x' }, session.token)).status, 401, 'logged-out token must stop working');
+  assert.equal((await postAlbum({ title: 'x' })).status, 201, 'other sessions keep working');
+  console.log('accounts: ok');
+}
+
 // ---- albums ----
 {
   const res = await postAlbum({ title: '  Trip  ', description: 'd' });
@@ -60,6 +99,7 @@ if (process.argv.includes('--smoke')) {
   assert.equal(album.description, 'd');
   assert.equal(album.count, 0);
   assert.equal(album.cover, null);
+  assert.ok(album.owner.startsWith('alice'));
 
   const blank = await postAlbum({ title: '   ' });
   assert.equal(blank.status, 400);
@@ -92,15 +132,15 @@ if (process.argv.includes('--smoke')) {
   const album = await (await postAlbum({ title: 'Media album' })).json();
   const png = await readFile(new URL('../assets/0072-zeiss-badge-hGfrjZ9e.png', import.meta.url));
   assert.ok(STORAGE_CAP > png.length + 5 * 32 && STORAGE_CAP < 2 * png.length, 'CHECK_STORAGE_CAP must be between 1x and 2x the PNG size');
-  const put = (id, query, type, body, headers = {}) =>
-    call(`/api/albums/${id}/media?${query}`, { method: 'PUT', headers: { 'Content-Type': type, ...headers }, body });
+  const put = (id, query, type, body, as = token) =>
+    call(`/api/albums/${id}/media?${query}`, { method: 'PUT', headers: { 'Content-Type': type, ...(as && { Authorization: `Bearer ${as}` }) }, body });
   const tiny = Buffer.concat([png.subarray(0, 8), Buffer.alloc(24)]);
 
-  const res = await put(album.id, 'title=%3Cb%3Ex%3C%2Fb%3E&author=', 'image/png', png);
+  const res = await put(album.id, 'title=%3Cb%3Ex%3C%2Fb%3E&author=Spoof', 'image/png', png);
   assert.equal(res.status, 201);
   const media = await res.json();
   assert.equal(media.kind, 'image');
-  assert.equal(media.author, 'Guest');
+  assert.equal(media.author, album.owner, 'author is the account, not a query param');
   assert.equal(media.title, '<b>x</b>');
   assert.equal(media.contentType, 'image/png');
   assert.equal(media.size, png.length);
@@ -110,6 +150,16 @@ if (process.argv.includes('--smoke')) {
   const listed = albums.find((a) => a.id === album.id);
   assert.equal(listed.count, 1);
   assert.equal(listed.cover.kind, 'image');
+  assert.equal(listed.owner, album.owner);
+  assert.equal((await (await call(`/api/albums?user=${album.owner}`)).json()).length, 1);
+  assert.equal((await (await call('/api/albums?user=nobody-here')).json()).length, 0);
+  assert.equal((await (await call(`/api/media?user=${album.owner}`)).json()).length, 1);
+  assert.equal((await (await call('/api/media?user=nobody-here')).json()).length, 0);
+  assert.equal((await (await call(`/api/albums/${album.id}`)).json()).owner, album.owner);
+
+  const mallory = await signup(`mallory${Date.now()}`);
+  assert.equal((await put(album.id, 'title=m', 'image/png', png, mallory)).status, 403, "can't upload into someone else's album");
+  assert.equal((await put(album.id, 'title=m', 'image/png', png, null)).status, 401);
 
   const full = await call(new URL(media.url).pathname);
   assert.equal(full.status, 200);
@@ -147,7 +197,7 @@ if (process.argv.includes('--smoke')) {
   const status = await new Promise((resolve, reject) => {
     const req = httpRequest(
       `${API}/api/albums/${album.id}/media?title=big`,
-      { method: 'PUT', headers: { 'Content-Type': 'image/png', 'Content-Length': 20971521 } },
+      { method: 'PUT', headers: { 'Content-Type': 'image/png', 'Content-Length': 20971521, Authorization: `Bearer ${token}` } },
       (r) => { r.resume(); resolve(r.statusCode); req.destroy(); },
     );
     req.on('error', (e) => (req.destroyed ? null : reject(e)));
@@ -194,7 +244,7 @@ if (process.argv.includes('--smoke')) {
   const album = await (await postAlbum({ title: 'Doomed' })).json();
   const urls = [];
   for (const body of [png.subarray(0, 100), tiny]) {
-    const res = await call(`/api/albums/${album.id}/media?title=d`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body });
+    const res = await call(`/api/albums/${album.id}/media?title=d`, { method: 'PUT', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${token}` }, body });
     assert.equal(res.status, 201);
     urls.push(new URL((await res.json()).url).pathname);
   }

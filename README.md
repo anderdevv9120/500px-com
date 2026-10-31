@@ -28,8 +28,8 @@ The export requires Node.js 22 or newer and no dependencies. The workflow obtain
 - Licensing landing page and all seven guides: licensing, contributing, requirements, releases, keywording, content types, and distribution.
 - Commercial Grants, with all five original project mosaics, photographer credits, section navigation, and local collection detail pages.
 - vivo campaign, app download, About Us, Terms, Privacy, and Licensing Agreement.
-- Guest photo and video uploads to a Cloudflare Worker, shown in guest albums on the `/p/guest` profile and at `/galleries/guest?album=<id>`.
-- Local demo login, password visibility/recovery UI, likes, saved galleries, follows, comments, sharing, and slideshow.
+- Username/password accounts and photo/video uploads to a Cloudflare Worker. Albums belong to their account and appear on `/p/guest?user=<username>` (`/p/guest` lists everyone's) and at `/galleries/guest?album=<id>`.
+- Password visibility/recovery UI, likes, saved galleries, follows, comments, sharing, and slideshow.
 
 The site contains 29 captured routes, 188 seeded photographs, 60 Quests, and 708 local assets, including the original Poppins font files and release PDFs. Photography and photographer credits are retained. The shared navigation omits Membership.
 
@@ -46,7 +46,7 @@ The site contains 29 captured routes, 188 seeded photographs, 60 Quests, and 708
 
 ## Demo behavior and limits
 
-Login accepts a sample username and a sample password of at least four characters after checking the terms box. It creates a local demo session. Passwords are neither saved nor sent. Likes, follows, galleries, and comments live in browser storage. Contest submissions do not call a backend; Upload sends files to the guest-uploads Worker (below). Clear the `500px-local-demo` localStorage entry to reset onboarding and demo state.
+Log in / Sign up uses real accounts stored by the Worker (below): a username and a password of at least 6 characters, after checking the terms box. The session token is kept in browser storage; Log out ends it on the Worker too. Password recovery remains demo-only; the captured social and PULSEpx sign-in buttons are removed. Likes, follows, galleries, and comments live in browser storage. Contest submissions do not call a backend; Upload sends files to the guest-uploads Worker (below). Clear the `500px-local-demo` localStorage entry to reset onboarding and demo state.
 
 The original layouts, typography, public copy, and available images were captured from the live site. Feed content is a finite local snapshot. Additional photo/Quest URLs reuse the captured detail layout with seeded titles and images; uncaptured profiles reuse the sample profile. Search uses seeded results, and some filter data is representative. Blog layouts now follow the working ISO Blog reference, with condensed local text as described below. These areas are not a verified pixel-for-pixel copy of all live states.
 
@@ -72,14 +72,16 @@ Run `tools/blog-check.mjs` with the same external `PLAYWRIGHT_MODULE` to verify 
 
 ## Guest uploads (Cloudflare)
 
-Anyone can upload without an account. Each **Choose files** pick adds to a preview list of photos and videos, where files can be removed before uploading. Upload creates a new album or adds to an existing one, and later batches in the same dialog go to the album it just created; albums appear under **Galleries** on `/p/guest` and at `/galleries/guest?album=<id>`, with photos and playable videos in the lightbox. The Worker in `worker/` stores files in R2 and album/media rows in D1. The site stays static, and seeded content never depends on the Worker: if it is down, only the upload dialog and guest pages show an error.
+Uploading needs an account; Upload opens Log in / Sign up first when you are signed out. Accounts are a username (1–30 characters, case-insensitive, unique) and a password of 6–200 characters, hashed with PBKDF2-SHA256 in the Worker; sessions last 30 days. Each **Choose files** pick adds to a preview list of photos and videos, where files can be removed before uploading. Upload creates a new album or adds to one of your own albums, and later batches in the same dialog go to the album it just created; uploads are credited to your username. Albums appear under **Galleries** on `/p/guest?user=<username>` (**My uploads** in the account menu), on `/p/guest` for everyone, and at `/galleries/guest?album=<id>`, with photos and playable videos in the lightbox. The Worker in `worker/` stores files in R2 and album/media rows in D1. The site stays static, and seeded content never depends on the Worker: if it is down, only the upload dialog and guest pages show an error.
 
 Limits, enforced by the Worker:
 
 - Photos (JPEG, PNG, WebP, GIF, AVIF) up to 20 MB. Videos (MP4, WebM, MOV) up to 95 MB, a **temporary** limit.
 - File types are checked by their first bytes after upload, not only by the declared type.
 - 50 uploads per visitor per hour (`UPLOADS_PER_HOUR`) and 5 GB total storage (`STORAGE_CAP_BYTES`), both Worker vars in `wrangler.toml`.
-- Album title 1–60 characters, description ≤ 280, author ≤ 40 (default "Guest"), media title ≤ 100 (defaults to the file name).
+- Album title 1–60 characters, description ≤ 280, media title ≤ 100 (defaults to the file name).
+- Creating albums and uploading need `Authorization: Bearer <token>` from `POST /api/signup` or `POST /api/login` (`{username, password}` → `{token, username}`); you can only upload into your own albums. `POST /api/logout` ends a session. Reading albums and media stays public; `?user=<username>` filters `GET /api/albums` and `GET /api/media`.
+- There is no login throttling yet.
 - CORS is limited to `ALLOWED_ORIGINS` (GitHub Pages plus localhost:5000).
 
 Clicking Upload prepares the selected files in the browser before any media upload starts. JPEG and PNG photos are converted to WebP at 90% quality while keeping their dimensions, orientation, and transparency. The list shows “Converting…” during conversion, then updates the filename and size before uploading. Upload stays disabled throughout preparation and upload. If WebP is not smaller, or the browser cannot encode WebP, the original format is kept and the status says “Uploading original…”. GIF, AVIF, existing WebP, and videos pass through unchanged. The 20 MB photo limit applies to the selected file before conversion.
@@ -98,10 +100,10 @@ cd worker && npm install && npm run migrate:local && npm run dev
 
 Both checks need a **fresh** local state, so point `--persist-to` at an empty temp directory. `WRANGLER_DISABLE_REQUEST_BODY_DRAINING=1` stops `wrangler dev` from holding the early 413 response until the body is drained. The exact commands are in each file's header.
 
-- `tools/upload-api-check.mjs` checks the Worker API: albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` (default `http://127.0.0.1:8787`) and `ADMIN_TOKEN` (default `dev-admin-token`) are optional.
+- `tools/upload-api-check.mjs` checks the Worker API: accounts, sessions, album ownership, albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` (default `http://127.0.0.1:8787`) and `ADMIN_TOKEN` (default `dev-admin-token`) are optional.
 - `tools/uploads-check.mjs` checks the browser flow: the upload dialog, EXIF stripping, the guest profile, albums, the lightbox, and the exported site. It needs `npm start` and `wrangler dev` with default vars, plus `PLAYWRIGHT_MODULE` pointing at an external `playwright-core/index.mjs`. `SITE_URL` and `API_URL` are optional.
 - `tools/image-upload-check.mjs` checks WebP conversion, size savings, transparency, orientation, metadata removal, unsupported encoders, failed conversions, and unchanged media. It needs `npm start` and `PLAYWRIGHT_MODULE`, and intercepts API requests so nothing is uploaded to a Worker.
-- `node tools/upload-api-check.mjs --smoke` is safe to run against production. It creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album, so it leaves nothing behind. It requires `API_URL` and `ADMIN_TOKEN`.
+- `node tools/upload-api-check.mjs --smoke` is safe to run against production. It signs up a `smoke-<timestamp>` account, creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album. The smoke account stays behind, since there is no user delete endpoint. It requires `API_URL` and `ADMIN_TOKEN`.
 
 ### Deploy (one time)
 
@@ -123,6 +125,8 @@ API_URL=https://<worker>.workers.dev ADMIN_TOKEN=<token> node tools/upload-api-c
 ```
 
 Later Worker changes only need `npm run deploy`. Schema changes also need `npm run migrate:remote`.
+
+Migration `0002_users.sql` adds accounts and **drops all existing guest albums and media rows**. Their R2 objects stay in `500px-guest-media`; empty the bucket in the Cloudflare dashboard if you want the space back. Run `npm run migrate:remote` before deploying the account-aware Worker.
 
 ### Admin deletes
 

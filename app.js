@@ -9,6 +9,7 @@ try { state = JSON.parse(localStorage.getItem(stateKey)) || {}; } catch { state 
 if (!state || typeof state !== 'object' || Array.isArray(state)) state = {};
 for (const key of ['likes','saved','following','categories']) if (!Array.isArray(state[key])) state[key] = [];
 if (!state.comments || typeof state.comments !== 'object') state.comments = {};
+if (state.user && !state.user.token) delete state.user; // pre-account local demo session
 const saveState = () => { try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch { /* Browser storage may be unavailable; the current page still works. */ } };
 const catalogPromise = fetch('/catalog.json?v=quest-licensing-1').then(response => { if (!response.ok) throw Error('Photo catalog unavailable'); return response.json(); });
 let galleriesPromise;
@@ -37,9 +38,14 @@ async function api(path, options) {
   let response;
   try { response = await fetch(`${uploadApi}/${path}`, options); } catch { throw Error(uploadDown); }
   const body = await response.json().catch(() => ({}));
+  if (response.status === 401) signedOut();
   if (!response.ok) throw Object.assign(Error(body.error || uploadDown), {status: response.status});
   return body;
 }
+const authHeader = () => state.user ? {Authorization: `Bearer ${state.user.token}`} : {};
+const post = (path, body) => api(path, {method:'POST', headers:{'Content-Type':'application/json', ...authHeader()}, body:JSON.stringify(body)});
+// the Worker forgot this session (expired or logged out elsewhere)
+function signedOut() { if (state.user) { delete state.user; saveState(); } }
 
 function clientCheck(file) {
   if (/^image\/hei[cf]$/.test(file.type) || /\.hei[cf]$/i.test(file.name)) return "HEIC isn't supported — export as JPEG.";
@@ -98,16 +104,18 @@ async function prepareMedia(file) {
   return new File([body], name, {type:body.type, lastModified:file.lastModified});
 }
 
-function putMedia(albumId, body, {title, author}, onProgress) {
+function putMedia(albumId, body, {title}, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title, author})}`);
+    xhr.open('PUT', `${uploadApi}/api/albums/${encodeURIComponent(albumId)}/media?${new URLSearchParams({title})}`);
     xhr.setRequestHeader('Content-Type', body.type);
+    if (state.user) xhr.setRequestHeader('Authorization', `Bearer ${state.user.token}`);
     xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
     xhr.onerror = () => reject(Error(uploadDown));
     xhr.onload = () => {
       let data = {};
       try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON error body */ }
+      if (xhr.status === 401) signedOut();
       if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(Error(data.error || uploadDown));
     };
     xhr.send(body);
@@ -229,22 +237,27 @@ function initializeHeaderMenus() {
     new ResizeObserver(updateHighlight).observe(navigation);
     updateHighlight();
   }
-  all('header button').filter(button => ['Inspiration','Licensing','More'].includes(button.getAttribute('aria-label')) || ['Photos','Users','Galleries','Quests','My account'].includes(button.textContent.trim())).forEach(trigger => {
-    const region = trigger.closest('[data-nav-item]') || trigger;
-    trigger.setAttribute('aria-haspopup','menu');
-    if (trigger.getAttribute('aria-label') !== 'More' && trigger.querySelector('svg')) trigger.querySelector('svg').dataset.headerChevron = '';
-    region.addEventListener('pointerenter',event => {
-      if (event.pointerType !== 'mouse' || !matchMedia('(hover: hover)').matches) return;
-      clearTimeout(menuCloseTimer);
-      if (menuTrigger !== trigger) trigger.click();
-    });
-    region.addEventListener('pointerleave',scheduleMenuClose);
-    trigger.addEventListener('keydown',event => {
-      if (event.key !== 'ArrowDown') return;
-      event.preventDefault();
-      if (menuTrigger !== trigger) trigger.click();
-      menu?.querySelector('[role="menuitem"]')?.focus();
-    });
+  all('header button').filter(button => ['Inspiration','Licensing','More'].includes(button.getAttribute('aria-label')) || ['Photos','Users','Galleries','Quests','My account'].includes(button.textContent.trim())).forEach(wireHeaderTrigger);
+}
+
+// hover/ArrowDown opening for a header menu trigger; also called when login turns "Log in" into "My account"
+function wireHeaderTrigger(trigger) {
+  if (trigger.dataset.menuWired !== undefined) return;
+  trigger.dataset.menuWired = '';
+  const region = trigger.closest('[data-nav-item]') || trigger;
+  trigger.setAttribute('aria-haspopup','menu');
+  if (trigger.getAttribute('aria-label') !== 'More' && trigger.querySelector('svg')) trigger.querySelector('svg').dataset.headerChevron = '';
+  region.addEventListener('pointerenter',event => {
+    if (event.pointerType !== 'mouse' || !matchMedia('(hover: hover)').matches) return;
+    clearTimeout(menuCloseTimer);
+    if (menuTrigger !== trigger) trigger.click();
+  });
+  region.addEventListener('pointerleave',scheduleMenuClose);
+  trigger.addEventListener('keydown',event => {
+    if (event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    if (menuTrigger !== trigger) trigger.click();
+    menu?.querySelector('[role="menuitem"]')?.focus();
   });
 }
 
@@ -272,8 +285,9 @@ function openDialog(content, className = '') {
   return dialog;
 }
 
-async function login() {
-  if (state.user) { showMenu(findText('My account') || document.querySelector('header button'),[{label:'My profile',href:'/p/MarcoGrassi'},{label:'Upload photos',action:upload},{label:'Log out',action:() => { delete state.user; saveState(); location.reload(); }}]); return; }
+// then: runs after a successful login (e.g. reopen the upload dialog that asked for it)
+async function login({signup = false, then} = {}) {
+  if (state.user) { showMenu(findText('My account') || document.querySelector('header button'),[{label:'My uploads',href:`/p/guest?user=${encodeURIComponent(state.user.name)}`},{label:'Upload photos',action:upload},{label:'Log out',action:async () => { await post('api/logout').catch(() => {}); signedOut(); location.reload(); }}]); return; }
   const response = await fetch('/pages/login-fragment.html');
   if (!response.ok) throw Error('Login view unavailable');
   loadFragmentStyles();
@@ -282,27 +296,53 @@ async function login() {
   const form = dialog.querySelector('form');
   const notice = document.createElement('p');
   notice.className = 'auth-notice';
-  notice.textContent = 'Local demo. Use any username and a sample password. No credentials are sent or saved.';
   dialog.querySelector('[role="dialog"]').append(notice);
   dialog.querySelectorAll('form').forEach(f => f.action = '#');
-  form.addEventListener('submit', event => {
+  const account = form.querySelector('input[name="account"]'), password = form.querySelector('input[type="password"]'), submit = form.querySelector('[type="submit"]');
+  Object.assign(account, {placeholder:'Enter your username', maxLength:30});
+  account.setAttribute('aria-label', 'Username');
+  password.minLength = 6;
+  const toggle = document.createElement('button');
+  toggle.type = 'button'; toggle.className = 'auth-switch';
+  // drop the captured "or" divider, social sign-in and PULSEpx buttons: only username/password is supported
+  while (form.nextElementSibling && form.nextElementSibling !== notice) form.nextElementSibling.remove();
+  findText('I have a PULSEpx account', dialog)?.remove();
+  form.after(toggle);
+  const setMode = on => {
+    signup = on;
+    submit.textContent = signup ? 'Sign up' : 'Log in';
+    toggle.textContent = signup ? 'Already have an account? Log in' : 'New to 500px? Sign up';
+    password.autocomplete = signup ? 'new-password' : 'current-password';
+    notice.textContent = signup ? 'Pick a username and a password of at least 6 characters.' : 'Log in with your username and password.';
+  };
+  setMode(signup);
+  toggle.addEventListener('click', () => setMode(!signup));
+  // both buttons stay disabled until the request settles, so neither a second submit nor a mode switch can race it
+  const busy = on => {
+    submit.disabled = toggle.disabled = on;
+    submit.textContent = on ? (signup ? 'Signing up…' : 'Logging in…') : (signup ? 'Sign up' : 'Log in');
+  };
+  form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (!form.reportValidity()) return;
-    state.user = {name:'Alex Morgan'};
-    saveState();
-    dialog.close();
-    refreshAccount();
-    toast('Welcome to 500px, Alex. You’re signed in to the local demo.');
+    if (!form.reportValidity() || submit.disabled) return;
+    busy(true);
+    try {
+      const {token, username} = await post(signup ? 'api/signup' : 'api/login', {username:account.value.trim(), password:password.value});
+      state.user = {name:username, token};
+      saveState();
+      dialog.close();
+      refreshAccount();
+      toast(`Welcome, ${username}.`);
+      await then?.();
+    } catch (error) { notice.textContent = error.message; }
+    finally { busy(false); }
   });
-  const password = dialog.querySelector('input[type="password"]');
   password?.parentElement.querySelector('button')?.addEventListener('click',() => password.type = password.type === 'password' ? 'text' : 'password');
   findText('Forgot password?',dialog)?.addEventListener('click', () => {
     dialog.close();
     const recovery = openDialog('<h2>Reset password</h2><p>Enter your email address to request a password reset.</p><form><label for="recovery-email">Email address</label><input id="recovery-email" type="email" required autocomplete="email"><button class="primary" type="submit">Send reset link</button></form>');
     recovery.querySelector('form').addEventListener('submit',event => { event.preventDefault(); if (event.target.reportValidity()) { recovery.close(); toast('Demo request complete. No email was sent.'); } });
   });
-  findText('I have a PULSEpx account',dialog)?.addEventListener('click',() => { notice.textContent = 'Use your sample PULSEpx username in the Account field to continue in this local demo.'; dialog.querySelector('input').focus(); });
-  all('a[href]',dialog).forEach(a => { if (/facebook|apple|google/.test(a.href)) a.addEventListener('click',event => { event.preventDefault(); toast('Social sign-in is unavailable in the local demo. Use the form above.'); }); });
 }
 
 function loadFragmentStyles() {
@@ -313,7 +353,11 @@ function loadFragmentStyles() {
 }
 
 function refreshAccount() {
-  if (state.user) all('header button').filter(b => ['Log in','My account'].includes(b.textContent.trim())).forEach(b => b.textContent = 'My account');
+  if (state.user) all('header button').filter(b => ['Log in','My account'].includes(b.textContent.trim())).forEach(b => { b.textContent = 'My account'; wireHeaderTrigger(b); });
+  // onboarding bar ("Not sure what to select?" · Skip · Log in): signed-in visitors keep Skip/Continue, lose Log in
+  const onboardingBar = document.querySelector('[data-track-id="onboarding_skip"]')?.closest('.css-1nemv3o');
+  const onboardingLogin = onboardingBar && findText('Log in', onboardingBar);
+  if (onboardingLogin) onboardingLogin.hidden = Boolean(state.user);
   const comment = all('.single-line').find(el => el.textContent.trim() === 'Log in to comment');
   if (state.user && comment) {
     comment.innerHTML = '<form class="local-comment-form"><input aria-label="Add a comment" placeholder="Add a comment…" maxlength="1000" required><button type="submit">Post</button></form>';
@@ -418,7 +462,8 @@ async function collect(photo) {
 }
 
 async function upload() {
-  const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><input id="upload-file" class="upload-input" type="file" accept="image/*,video/*" multiple><label for="upload-file" class="upload-pick">Choose files</label><p class="upload-summary" hidden><span></span><button type="button" class="upload-clear">Clear all</button></p><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><label for="upload-author">Your name (optional)</label><input id="upload-author" maxlength="40" placeholder="Guest"><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
+  if (!state.user) return login({then: upload});
+  const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><input id="upload-file" class="upload-input" type="file" accept="image/*,video/*" multiple><label for="upload-file" class="upload-pick">Choose files</label><p class="upload-summary" hidden><span></span><button type="button" class="upload-clear">Clear all</button></p><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
   const form = dialog.querySelector('form'), list = dialog.querySelector('.upload-files'), msg = dialog.querySelector('.upload-msg'), submit = dialog.querySelector('[type="submit"]');
   const [newPane, existingPane] = all('[data-mode]', dialog), select = dialog.querySelector('#upload-album'), existingRadio = dialog.querySelector('[value="existing"]'), titleInput = dialog.querySelector('#upload-album-title');
   const picker = dialog.querySelector('#upload-file'), summary = dialog.querySelector('.upload-summary'), clear = dialog.querySelector('.upload-clear');
@@ -450,7 +495,7 @@ async function upload() {
   clear.addEventListener('click', () => { drop(items); items = []; render(); });
   dialog.addEventListener('close', () => drop(items));
   all('[name="album-mode"]', dialog).forEach(radio => radio.addEventListener('change', () => { const existing = existingRadio.checked; newPane.hidden = existing; existingPane.hidden = !existing; titleInput.required = !existing; }));
-  api('api/albums').then(albums => {
+  api(`api/albums?user=${encodeURIComponent(state.user.name)}`).then(albums => {
     select.innerHTML = albums.map(album => `<option value="${escapeHTML(album.id)}">${escapeHTML(album.title)} (${album.count})</option>`).join('');
     existingRadio.disabled = !albums.length;
   }, error => { blocked = true; submit.disabled = true; existingRadio.disabled = true; say(error.message, true); });
@@ -484,9 +529,8 @@ async function upload() {
     if (!ready.length) { say(`0 uploaded, ${pending.length} failed`, true); submit.disabled = blocked; lock(false); return; }
     let albumId = select.value;
     try {
-      if (!existingRadio.checked) albumId = (await api('api/albums', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})})).id;
+      if (!existingRadio.checked) albumId = (await post('api/albums', {title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})).id;
     } catch (error) { say(error.message, true); submit.disabled = blocked; lock(false); return; }
-    const author = dialog.querySelector('#upload-author').value.trim();
     let uploaded = 0, next = 0;
     // 3 workers pull from a shared queue, so at most 3 uploads are in flight
     const worker = async () => {
@@ -495,7 +539,7 @@ async function upload() {
         item.bar.hidden = false; item.bar.value = 0;
         setStatus(item, /image\/(jpeg|png)/.test(item.source.type) && item.file.type !== 'image/webp' ? 'Uploading original…' : 'Uploading…');
         try {
-          await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100), author}, fraction => { item.bar.value = fraction; });
+          await putMedia(albumId, item.file, {title:item.file.name.replace(/\.[^.]+$/, '').slice(0, 100)}, fraction => { item.bar.value = fraction; });
           uploaded++; item.done = true; setStatus(item, 'Uploaded');
         } catch (error) { setStatus(item, error.message, true); }
         item.bar.hidden = true;
@@ -661,7 +705,7 @@ async function renderGallery() {
     // Seeded galleries never touch the Worker; only this branch does.
     try{
       const album=query.get('album')?await api(`api/albums/${encodeURIComponent(query.get('album'))}`):null;
-      if(album?.media.length)gallery={title:album.title,description:album.description,photos:album.media.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}))};
+      if(album?.media.length)gallery={title:album.title,description:album.description,owner:album.owner,photos:album.media.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}))};
     }catch(error){
       if(error.status!==404){notFound('Guest uploads are unavailable right now.');return;}
     }
@@ -673,9 +717,10 @@ async function renderGallery() {
   if(!gallery){notFound('This gallery is not available in the local collection.');return;}
   document.title=`${gallery.title} | 500px`;
   galleryPhotos=gallery.photos;
-  const back=isGrant?`/grants#${gallery.section}`:isGuest?'/p/guest?view=galleries':`/p/${owner}?view=galleries`;
-  const ownerHref=isGrant?'/grants':isGuest?'/p/guest':`/p/${owner}`;
-  const ownerName=isGrant?'500px':isGuest?'Guest uploads':profile.name;
+  const userPage=isGuest&&`/p/guest?user=${encodeURIComponent(gallery.owner)}`;
+  const back=isGrant?`/grants#${gallery.section}`:isGuest?`${userPage}&view=galleries`:`/p/${owner}?view=galleries`;
+  const ownerHref=isGrant?'/grants':isGuest?userPage:`/p/${owner}`;
+  const ownerName=isGrant?'500px':isGuest?gallery.owner:profile.name;
   const following=state.following.includes(ownerHref);
   // shortcut: Grant galleries contain captured preview photos; expand when full collections can be captured.
   main.innerHTML=`<a class="gallery-back" data-gallery-back href="${back}">← ${isGrant?'Commercial Grants':`Galleries by ${escapeHTML(ownerName)}`}</a>
@@ -687,10 +732,11 @@ async function renderGallery() {
   if(isGuest)layoutGrids();
 }
 
+const profileUser=new URLSearchParams(location.search).get('user');
 async function renderGuestProfile() {
-  document.title='Guest uploads | 500px';
+  document.title=`${profileUser||'Guest uploads'} | 500px`;
   const name=all('span').find(span=>!span.children.length&&span.textContent.trim()==='Marco Grassi');
-  name.textContent='Guest uploads';
+  name.textContent=profileUser||'Guest uploads';
   // captured markup: name > name row > name+location block > header row > info column
   const info=name.parentElement.parentElement.parentElement.parentElement;
   [name.parentElement.nextElementSibling,name.parentElement.parentElement.nextElementSibling,...[...info.children].slice(1)].forEach(el=>{if(el)el.hidden=true;});
@@ -738,9 +784,10 @@ async function handleTab(button) {
       url.searchParams.set('view',works?'works':'galleries');
       history.replaceState(history.state,'',url);
       try{
-        const list=await api(works?'api/media?limit=200':'api/albums');
+        const only=profileUser?`user=${encodeURIComponent(profileUser)}`:'';
+        const list=await api(works?`api/media?limit=200&${only}`:`api/albums?${only}`);
         if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
-        panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(album.cover.url)}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`);
+        panel.innerHTML=!list.length?'<p>No uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(album.cover.url)}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`);
         if(works)layoutGrids();
         if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());
       }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
@@ -809,7 +856,8 @@ async function handleClick(event) {
   if(target.closest('header')&&['Photos','Users','Galleries','Quests'].includes(text)){
     showMenu(button,['Photos','Users','Galleries','Quests'].map(type=>({label:type,action:()=>{button.childNodes[0].textContent=type;button.dataset.searchType=type.toLowerCase();}})));return;
   }
-  if(['Log in','Sign up','Get started','My account','Log in to comment','Try free for 30 days'].includes(text)||target.closest('.single-line')?.textContent.trim()==='Log in to comment') {event.preventDefault();await login();return;}
+  if(target.closest('.local-auth'))return; // its own Log in / Sign up buttons are handled by login()
+  if(['Log in','Sign up','Get started','My account','Log in to comment','Try free for 30 days'].includes(text)||target.closest('.single-line')?.textContent.trim()==='Log in to comment') {event.preventDefault();await login({signup:text==='Sign up'});return;}
   if(['Get Started','Join the Program','Apply Now','Apply now','Join now'].includes(text)){event.preventDefault();await login();return;}
   if(track==='onboarding_skip'){
     state.exploring=true;saveState();location.assign('/discover');return;
@@ -852,7 +900,7 @@ async function handleClick(event) {
   if(button?.getAttribute('role')==='tab'){await handleTab(button);return;}
   const questFilter=target.closest('[data-quest-filter]');if(questFilter){filterQuests(questFilter.dataset.questFilter);return;}
   if(target.closest('[data-quest-sort-trigger]')){await questFilters();return;}
-  if(pageName==='quests'&&label==='Sign up'){await login();return;}
+  if(pageName==='quests'&&label==='Sign up'){await login({signup:true});return;}
   if(pageName.startsWith('quest-')&&['Submit','Join Now','Vote'].includes(text)){await questSubmission();return;}
   if(pageName==='quests'&&['Submit','Vote'].includes(text)){await questSubmission();return;}
   if(text==='Filters'&&pageName==='search'){searchFilters();return;}
@@ -990,7 +1038,7 @@ async function initialize() {
   if(pageName==='blog')await renderBlog();
   refreshAccount();
   initializeHeaderMenus();
-  if(['/login','/signup'].includes(location.pathname))await login();
+  if(['/login','/signup'].includes(location.pathname))await login({signup:location.pathname==='/signup'});
   if(['/upload','/manager/works','/manager/licensing'].includes(location.pathname))await upload();
 }
 

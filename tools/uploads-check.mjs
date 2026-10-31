@@ -13,6 +13,11 @@ const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chr
 const origin=process.env.SITE_URL||'http://127.0.0.1:5000';
 const api=process.env.API_URL||'http://127.0.0.1:8787';
 const errors=[];
+const signup=async username=>{
+  const r=await fetch(api+'/api/signup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password:'secret1'})});
+  assert.equal(r.status,201,`signup ${username}`);
+  return {name:username,token:(await r.json()).token};
+};
 
 // Fixtures: the real JPEG with an APP1 "Exif" segment spliced in after SOI. Its big-endian TIFF IFD0 holds
 // Orientation=6, followed by the ASCII marker GPSMARKER.
@@ -40,6 +45,8 @@ const files=[
 try {
   const context=await browser.newContext({viewport:{width:1024,height:900}});
   await context.addInitScript(api=>{try{localStorage.uploadApi=api}catch{}},api); // never upload to production
+  // uploads need an account: every page starts signed in as `checker`
+  await context.addInitScript(user=>{try{const s=JSON.parse(localStorage['500px-local-demo']||'{}');if(!s.user){s.user=user;localStorage['500px-local-demo']=JSON.stringify(s);}}catch{}},await signup('checker'));
   const page=await context.newPage();
   page.on('pageerror',error=>errors.push(error.message));
 
@@ -98,7 +105,6 @@ try {
   // a clean batch clears the form
   assert.equal(await rows.count(),0,'uploaded files must leave the list');
   assert.equal(await dialog.getByLabel('New album').isChecked(),true,'form must reset after a clean upload');
-  assert.equal(await dialog.locator('#upload-author').inputValue(),'');
   await page.unroute(isPut);
 
   // EXIF is stripped before the bytes reach R2
@@ -155,12 +161,13 @@ try {
   console.log('upload dialog ok');
 
   // guest gallery
-  const title='<img src=x onerror=alert(1)>',author=`"Q" & 'A' 📷`;
+  const title='<img src=x onerror=alert(1)>',author=`"Q" & 'A' 📷`; // author is the account's username
+  const owner=await signup(author),auth={authorization:`Bearer ${owner.token}`};
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
   const post=(path,init)=>fetch(api+path,init).then(async r=>{assert.ok(r.ok,`${path} ${r.status}`);return r.json();});
-  const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
+  const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({title})});
   for(const [file,type,body] of [['a.png','image/png',png],['b.mp4','video/mp4',mp4]])
-    await post(`/api/albums/${seeded.id}/media?title=${file}&author=${encodeURIComponent(author)}`,{method:'PUT',headers:{'content-type':type},body});
+    await post(`/api/albums/${seeded.id}/media?title=${file}`,{method:'PUT',headers:{'content-type':type,...auth},body});
   const guest=await context.newPage();
   guest.on('pageerror',error=>errors.push(error.message));
   guest.on('dialog',d=>{errors.push('alert: '+d.message());d.dismiss();});
@@ -173,10 +180,10 @@ try {
   assert.equal(await guest.locator('.gallery-photo video').count(),1);
   assert.equal(await guest.locator('.gallery-play-badge').count(),1);
   assert.equal(await guest.locator('.gallery-count').textContent(),'2 items');
-  assert.equal((await guest.locator('[data-gallery-owner]').textContent()).trim(),'Guest uploads');
+  assert.equal((await guest.locator('[data-gallery-owner]').textContent()).trim(),author);
   assert.equal(await guest.locator('.gallery-follow').count(),0);
-  assert.equal(await guest.locator('[data-gallery-back]').textContent(),'← Galleries by Guest uploads');
-  assert.equal(await guest.locator('[data-gallery-back]').getAttribute('href'),'/p/guest?view=galleries');
+  assert.equal(await guest.locator('[data-gallery-back]').textContent(),`← Galleries by ${author}`);
+  assert.equal(await guest.locator('[data-gallery-back]').getAttribute('href'),`/p/guest?user=${encodeURIComponent(author)}&view=galleries`);
   for(const caption of await guest.locator('.gallery-photo figcaption').allTextContents())assert.ok(caption.includes(author),caption);
   await guest.locator('.gallery-photo:has(video) button').click();
   await guest.locator('.local-lightbox video[controls]').waitFor();
@@ -255,7 +262,7 @@ try {
   empty.on('pageerror',error=>errors.push(error.message));
   await empty.route(url=>url.pathname==='/api/albums',route=>route.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'[]'}));
   await empty.goto(origin+'/p/guest',{waitUntil:'networkidle'});
-  await empty.getByText('No guest uploads yet.').waitFor();
+  await empty.getByText('No uploads yet.').waitFor();
   await empty.locator('.local-profile-panel button',{hasText:'Upload'}).click();
   await empty.locator('dialog[open]').waitFor();
   // API outage: seeded pages still render, guest UI says so
