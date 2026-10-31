@@ -175,6 +175,12 @@ try {
   await cells.first().waitFor();
   assert.ok(await cells.count()>=2);
   assert.ok(await cells.locator('video').count()>=1);
+  // the first cell opens the lightbox only; an upload dialog must never be created (it would be replaced, so watch for it)
+  await prof.evaluate(()=>{window.uploadOpened=false;new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.querySelector?.('#upload-file'))window.uploadOpened=true;}).observe(document.body,{childList:true,subtree:true});});
+  await cells.first().locator('button').click();
+  await prof.locator('.local-lightbox').waitFor();
+  assert.equal(await prof.evaluate(()=>window.uploadOpened),false,'upload dialog opened');
+  await prof.keyboard.press('Escape');
   await cells.filter({has:prof.locator('video')}).first().locator('button').click();
   await prof.locator('.local-lightbox video[controls]').waitFor();
   await prof.keyboard.press('Escape');

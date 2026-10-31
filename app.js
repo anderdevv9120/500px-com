@@ -653,7 +653,7 @@ async function handleTab(button) {
         const list=await api(works?'/api/media?limit=200':'/api/albums');
         if(works)galleryPhotos=list.map(m=>({src:m.url,title:m.title,author:m.author,kind:m.kind}));
         panel.innerHTML=!list.length?'<p>No guest uploads yet.</p><button class="local-primary" type="button">Upload</button>':`<div class="local-grid">${works?galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join(''):list.map(album=>`<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<video src="${escapeHTML(album.cover.url)}" preload="metadata" muted></video>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a>`).join('')}</div>`;
-        panel.querySelector('button')?.addEventListener('click',()=>upload());
+        if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());
       }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
     }
     else if(text.startsWith('Works')){if(grid)grid.hidden=false;panel.hidden=true;layoutGrids();}
