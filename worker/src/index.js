@@ -1,4 +1,4 @@
-import { cleanText } from './rules.js';
+import { checkUpload, cleanText, extensionFor, sniffMatches, sniffMediaType } from './rules.js';
 
 export const json = (data, status = 200) =>
   status === 204 ? new Response(null, { status }) : Response.json(data, { status });
@@ -99,6 +99,84 @@ async function createAlbum(request, env) {
   return json(toAlbum({ ...album, count: 0 }, ''), 201);
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+async function ipHash(request) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'local';
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function uploadMedia(request, env, origin, url, albumId) {
+  const album = await env.DB.prepare('SELECT id FROM albums WHERE id = ?').bind(albumId).first();
+  if (!album) return error(404, 'Album not found');
+
+  const lengthHeader = request.headers.get('Content-Length');
+  if (lengthHeader === null) return error(411, 'Content-Length header is required');
+  if (!/^\d+$/.test(lengthHeader)) return error(400, 'Content-Length must be a non-negative integer');
+  const size = Number(lengthHeader);
+  if (size === 0) return error(400, 'The file is empty');
+
+  const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  const check = checkUpload({ contentType, size });
+  if (!check.ok) return error(check.status, check.error);
+
+  // ponytail: cap/rate checks race under concurrent uploads; fine for a demo, use a Durable Object counter if it matters
+  const hash = await ipHash(request);
+  const { n } = await env.DB.prepare('SELECT COUNT(*) AS n FROM media WHERE ip_hash = ? AND created_at > ?')
+    .bind(hash, Date.now() - HOUR_MS).first();
+  if (n >= Number(env.UPLOADS_PER_HOUR)) return error(429, 'Upload limit reached — try again in an hour.');
+  const { used } = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) AS used FROM media').first();
+  if (used + size > Number(env.STORAGE_CAP_BYTES)) return error(507, 'Demo storage is full.');
+
+  // ponytail: ext comes from the declared type (the sniff runs after the write); identical to the sniffed ext for images
+  const id = crypto.randomUUID();
+  const key = `${albumId}/${id}.${extensionFor(contentType)}`;
+  const stored = await env.MEDIA.put(key, request.body, { httpMetadata: { contentType } });
+  try {
+    const head = await env.MEDIA.get(key, { range: { offset: 0, length: 16 } });
+    const sniffed = sniffMediaType(new Uint8Array(await head.arrayBuffer()));
+    if (!sniffMatches(contentType, sniffed)) {
+      await env.MEDIA.delete(key);
+      return error(415, "That file doesn't look like a supported photo or video.");
+    }
+    const row = {
+      id,
+      album_id: albumId,
+      r2_key: key,
+      kind: check.kind,
+      content_type: contentType,
+      size: stored.size,
+      title: cleanText(url.searchParams.get('title'), 100, 'Untitled'),
+      author: cleanText(url.searchParams.get('author'), 40, 'Guest'),
+      created_at: Date.now(),
+    };
+    await env.DB.prepare(
+      'INSERT INTO media (id, album_id, r2_key, kind, content_type, size, title, author, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(row.id, row.album_id, row.r2_key, row.kind, row.content_type, row.size, row.title, row.author, hash, row.created_at).run();
+    return json(toMedia(row, origin), 201);
+  } catch (err) {
+    await env.MEDIA.delete(key);
+    throw err;
+  }
+}
+
+async function serveMedia(request, env, key) {
+  const object = await env.MEDIA.get(key, { range: request.headers });
+  if (!object) return error(404, 'Not found');
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('ETag', object.httpEtag);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  if (request.headers.has('Range') && object.range) {
+    const { offset, length } = object.range;
+    headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
+    return new Response(object.body, { status: 206, headers });
+  }
+  return new Response(object.body, { headers });
+}
+
 async function route(request, env) {
   const url = new URL(request.url);
   const { origin, pathname } = url;
@@ -109,6 +187,10 @@ async function route(request, env) {
   if (pathname === '/api/albums' && method === 'GET') return listAlbums(env, origin);
   if (pathname === '/api/albums' && method === 'POST') return createAlbum(request, env);
   if (albumMatch && method === 'GET') return getAlbum(env, origin, albumMatch[1]);
+  const uploadMatch = pathname.match(/^\/api\/albums\/([^/]+)\/media$/);
+  if (uploadMatch && method === 'PUT') return uploadMedia(request, env, origin, url, uploadMatch[1]);
+  const mediaMatch = pathname.match(/^\/media\/(.+)$/);
+  if (mediaMatch && method === 'GET') return serveMedia(request, env, mediaMatch[1]);
   if (pathname === '/api/media' && method === 'GET') return listMedia(env, origin, url);
   return error(404, 'Not found');
 }
