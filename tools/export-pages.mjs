@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +23,14 @@ const files = ['index.html', 'app.js', 'styles.css', 'catalog.json',
   ...(await fs.readdir(path.join(root, 'pages'))).map(name => `pages/${name}`)];
 const sources = new Map(await Promise.all(files.map(async name => [name, await fs.readFile(path.join(root, name), 'utf8')])));
 const manifest = JSON.parse(sources.get('pages/manifest.json'));
+// Cache busting: GitHub Pages lets browsers keep files for ~10 minutes, so every cacheable file is requested as ?v=<hash of their contents>.
+const version = createHash('sha256').update([...sources].filter(([name]) => !name.endsWith('.html') || name.endsWith('-fragment.html')).sort(([a], [b]) => a.localeCompare(b)).map(([name, text]) => name + '\0' + text).join('\0')).digest('hex').slice(0, 10);
+const escapedBase = basePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stampPattern = new RegExp(`(${escapedBase}/(?:app\\.js|styles\\.css|catalog\\.json|pages/[A-Za-z0-9._-]+\\.(?:css|json|html)))(?:\\?v=[^"'\`]*)?(?=["'\`])`, 'g');
+const stamp = text => text.replace(stampPattern, `$1?v=${version}`).replace(/(-fragment\.html)(?=`)/g, `$1?v=${version}`);
+assert.equal(stamp(`href="${basePath}/styles.css" '${basePath}/catalog.json?v=old' \`${basePath}/pages/leaderboard-\${period}-fragment.html\``), `href="${basePath}/styles.css?v=${version}" '${basePath}/catalog.json?v=${version}' \`${basePath}/pages/leaderboard-\${period}-fragment.html?v=${version}\``);
+assert.equal(stamp(`href="${basePath}/assets/a.jpg"`), `href="${basePath}/assets/a.jpg"`);
+
 const catalog = JSON.parse(sources.get('catalog.json'));
 const galleries = JSON.parse(sources.get('pages/galleries.json'));
 const blog = JSON.parse(sources.get('pages/blog-posts.json'));
@@ -57,7 +66,7 @@ for (const [name, source] of sources) {
   }
   const destination = path.join(output, name);
   await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.writeFile(destination, contents);
+  await fs.writeFile(destination, name.endsWith('.js') || name.endsWith('.html') ? stamp(contents) : contents);
 }
 for (const route of routes) {
   const page = resolvePage(route, manifest, licensingQuests);
@@ -66,8 +75,8 @@ for (const route of routes) {
   const destination = path.resolve(output, `.${route}`, 'index.html');
   assert.ok(destination.startsWith(output + path.sep), `Route must stay inside export: ${route}`);
   await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.writeFile(destination, rebase(source));
+  await fs.writeFile(destination, stamp(rebase(source)));
 }
 await fs.writeFile(path.join(output, '.nojekyll'), '');
 await fs.writeFile(path.join(output, '404.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Page not found</title><h1>Page not found</h1><p>This URL is not included in the static snapshot.</p><a href="${basePath}/">Return to 500px</a></html>\n`);
-console.log(`Exported ${routes.size} routes to _site with base path ${basePath || '/'}.`);
+console.log(`Exported ${routes.size} routes to _site with base path ${basePath || '/'}, asset version ${version}.`);

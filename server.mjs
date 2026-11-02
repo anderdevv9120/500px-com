@@ -25,7 +25,7 @@ const server = http.createServer(async (request,response) => {
       return;
     }
     const contents = await fs.readFile(resolved);
-    response.writeHead(200,{'Content-Type':types[path.extname(resolved)] || 'application/octet-stream','Cache-Control':page ? 'no-cache' : 'public, max-age=3600'});
+    response.writeHead(200,{'Content-Type':types[path.extname(resolved)] || 'application/octet-stream','Cache-Control':page || !filename.startsWith('assets/') ? 'no-cache' : 'public, max-age=3600'});
     if (request.method === 'HEAD') response.end(); else response.end(contents);
   } catch (error) {
     response.writeHead(error.code === 'ENOENT' ? 404 : 500, {'Content-Type':'text/plain; charset=utf-8'}).end(error.code === 'ENOENT' ? 'File not found.' : 'Unable to serve this page.');

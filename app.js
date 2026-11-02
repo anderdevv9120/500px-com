@@ -354,6 +354,7 @@ function loadFragmentStyles() {
 
 function refreshAccount() {
   if (state.user) all('header button').filter(b => ['Log in','My account'].includes(b.textContent.trim())).forEach(b => { b.textContent = 'My account'; wireHeaderTrigger(b); });
+  all('header button').filter(b => ['Log in','My account'].includes(b.textContent.trim())).forEach(b => b.toggleAttribute('data-login-hidden', b.textContent.trim() === 'Log in')); // admin signs in at /admin
   // onboarding bar ("Not sure what to select?" · Skip · Log in): signed-in visitors keep Skip/Continue, lose Log in
   const onboardingBar = document.querySelector('[data-track-id="onboarding_skip"]')?.closest('.css-1nemv3o');
   const onboardingLogin = onboardingBar && findText('Log in', onboardingBar);
@@ -424,14 +425,41 @@ async function lightbox(index = 0, automatic = false, photos) {
   activePhotos = (photos || catalog.photos).map(photo=>({...photo,...catalog.photos.find(item=>item.href===photo.href || item.src===photo.src)})).filter(photo => !photo.deleted);
   if (!activePhotos.length) return;
   photoIndex = (index + activePhotos.length) % activePhotos.length;
-  const dialog = openDialog(`${deleteButton('', 'Delete')}<img alt=""><div class="lightbox-caption"><span></span></div><button type="button" data-slide="previous" aria-label="Previous photo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button type="button" data-slide="next" aria-label="Next photo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>`,'local-lightbox');
-  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); dialog.querySelector('.lightbox-caption').innerHTML = `<span><p class="photo-copyright">${copyrightNotice}</p><strong>${escapeHTML(photo.title)}</strong>${photo.description?`<p class="photo-description">${escapeHTML(photo.description)}</p>`:''}<small>${escapeHTML(photo.author)}</small></span>${photo.createdAt?`<time datetime="${new Date(photo.createdAt).toISOString()}">${escapeHTML(new Date(photo.createdAt).toLocaleString())}</time>`:''}`; const del = dialog.querySelector('[data-delete-media]'); del.hidden = !isMine(photo); del.dataset.deleteMedia = photo.id || ''; del.setAttribute('aria-label', `Delete ${photo.title}`); };
+  const dialog = openDialog(`${deleteButton('', 'Delete')}<div class="lightbox-description"></div><img alt=""><div class="lightbox-caption"><span></span></div><button type="button" data-slide="previous" aria-label="Previous photo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button type="button" data-slide="next" aria-label="Next photo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>`,'local-lightbox');
+  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); const head = dialog.querySelector('.lightbox-description'); head.hidden = !photo.description; head.textContent = photo.description || ''; dialog.querySelector('.lightbox-caption').innerHTML = `<span><p class="photo-copyright">Photographer: ${escapeHTML(photo.author)}</p><p class="photo-copyright">${copyrightNotice}</p></span>${photo.createdAt?`<time datetime="${new Date(photo.createdAt).toISOString()}">${escapeHTML(new Date(photo.createdAt).toLocaleString())}</time>`:''}`; const del = dialog.querySelector('[data-delete-media]'); del.hidden = !isMine(photo); del.dataset.deleteMedia = photo.id || ''; del.setAttribute('aria-label', `Delete ${photo.title}`); };
   const move = step => { photoIndex = (photoIndex + step + activePhotos.length) % activePhotos.length; update(); };
   dialog.querySelector('[data-slide="previous"]').addEventListener('click',() => move(-1));
   dialog.querySelector('[data-slide="next"]').addEventListener('click',() => move(1));
   dialog.addEventListener('keydown',event => { if (event.key === 'ArrowRight') move(1); if (event.key === 'ArrowLeft') move(-1); });
   update();
   if (automatic) slideshowTimer = setInterval(() => { const video = dialog.querySelector('video'); if (!video || video.paused || video.ended) move(1); },5000);
+}
+
+function adminMutate(path, method, body) {
+  return api(path, {method, headers:{'Content-Type':'application/json', ...authHeader()}, ...(body && {body:JSON.stringify(body)})}).then(() => location.reload());
+}
+
+// shared by the admin Photos list and the "..." photo menus
+function editPhotoDialog(photo, users, path, mutate = adminMutate) {
+  const date = photo.createdAt != null ? new Date(photo.createdAt) : null;
+  const localDate = date ? new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) : '';
+  const dialog = openDialog(`<h2>Edit ${photo.kind==='video'?'video':'photo'}</h2><form><label for="admin-title">Title</label><input id="admin-title" maxlength="100" required value="${escapeHTML(photo.title)}"><label for="admin-description">Description</label><textarea id="admin-description" maxlength="280" rows="4">${escapeHTML(photo.description || '')}</textarea><label for="admin-date">Posting date</label><input id="admin-date" type="datetime-local" step="60" required value="${localDate}"><label for="admin-owner">Owner</label><select id="admin-owner">${photo.seeded?`<option value="">Original credit: ${escapeHTML(photo.author)}</option>`:''}${users.map(user=>`<option value="${escapeHTML(user.id)}" ${user.id===photo.ownerId?'selected':''}>${escapeHTML(user.username)}</option>`).join('')}</select><button type="submit" class="primary">Save changes</button><p role="status"></p></form>`);
+    dialog.querySelector('form').addEventListener('submit', async submitEvent => {
+      submitEvent.preventDefault(); const button = dialog.querySelector('[type="submit"]'); button.disabled = true;
+      try { await mutate(path,'PUT',{title:dialog.querySelector('#admin-title').value,description:dialog.querySelector('#admin-description').value,createdAt:new Date(dialog.querySelector('#admin-date').value).getTime(),ownerId:dialog.querySelector('#admin-owner').value || null}); }
+      catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; button.disabled = false; }
+    });
+}
+
+async function adminPhotoItems(href) {
+  if (!state.user?.isAdmin) return [];
+  const photo = (await catalogPromise).photos.find(item => item.href === href.replace(/(.)\/$/, '$1'));
+  if (!photo) return [];
+  const item = {...photo, seeded:true, id:photo.href.split('/').pop()}, path = `api/admin/seeded/${encodeURIComponent(item.id)}`;
+  return [
+    {label:'Edit', action:async () => { try { editPhotoDialog(item, await api('api/admin/users', {headers:authHeader()}), path); } catch (error) { toast(error.message); } }},
+    {label:'Delete', action:async () => { if (confirm(`Delete “${item.title}”?`)) try { await adminMutate(path, 'DELETE'); } catch (error) { toast(error.message); } }}
+  ];
 }
 
 async function share(url = location.href, title = 'Share this photo') {
@@ -702,14 +730,7 @@ async function renderAdmin() {
           try { await mutate(path, 'DELETE'); } catch (error) { main.querySelector('.admin-status').textContent = error.message; event.target.disabled = false; }
         }
         if (!event.target.closest('[data-edit-photo]')) return;
-        const date = photo.createdAt != null ? new Date(photo.createdAt) : null;
-        const localDate = date ? new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) : '';
-        const dialog = openDialog(`<h2>Edit ${photo.kind==='video'?'video':'photo'}</h2><form><label for="admin-title">Title</label><input id="admin-title" maxlength="100" required value="${escapeHTML(photo.title)}"><label for="admin-description">Description</label><textarea id="admin-description" maxlength="280" rows="4">${escapeHTML(photo.description || '')}</textarea><label for="admin-date">Posting date</label><input id="admin-date" type="datetime-local" step="60" required value="${localDate}"><label for="admin-owner">Owner</label><select id="admin-owner">${photo.seeded?`<option value="">Original credit: ${escapeHTML(photo.author)}</option>`:''}${users.map(user=>`<option value="${escapeHTML(user.id)}" ${user.id===photo.ownerId?'selected':''}>${escapeHTML(user.username)}</option>`).join('')}</select><button type="submit" class="primary">Save changes</button><p role="status"></p></form>`);
-        dialog.querySelector('form').addEventListener('submit', async submitEvent => {
-          submitEvent.preventDefault(); const button = dialog.querySelector('[type="submit"]'); button.disabled = true;
-          try { await mutate(path,'PUT',{title:dialog.querySelector('#admin-title').value,description:dialog.querySelector('#admin-description').value,createdAt:new Date(dialog.querySelector('#admin-date').value).getTime(),ownerId:dialog.querySelector('#admin-owner').value || null}); }
-          catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; button.disabled = false; }
-        });
+        editPhotoDialog(photo, users, path, mutate);
       });
     }
     refreshAccount();
@@ -1021,7 +1042,7 @@ async function handleClick(event) {
         if(!Array.isArray(state.comments[href]))state.comments[href]=[];
         state.comments[href].push(message);saveState();const p=document.createElement('p');p.textContent=message;comments.append(p);input.value='';
       });
-    }else showMenu(rankAction,[{label:'Share',action:()=>share(new URL(href,location.origin).href)},{label:'Save to gallery',action:()=>collect({href})},{label:'Report photo',action:()=>toast('Report received in the local demo.')}]);
+    }else showMenu(rankAction,[{label:'Share',action:()=>share(new URL(href,location.origin).href)},{label:'Save to gallery',action:()=>collect({href})},{label:'Report photo',action:()=>toast('Report received in the local demo.')},...await adminPhotoItems(href)]);
     return;
   }
   if (target.closest('header')&&['Inspiration','Licensing','More','Toggle navigation'].includes(label)) {
@@ -1065,7 +1086,7 @@ async function handleClick(event) {
     event.preventDefault();toggleStored('likes',photoKey,button,'local-liked');return;
   }
   if(label==='more'||label==='more options'||track==='more_menu_btn'||track==='comment_more_btn'){
-    event.preventDefault();showMenu(button||target,[{label:'Share',action:share},{label:'Save to gallery',action:()=>collect({href:photoKey})},{label:'Report photo',action:()=>toast('Report received in the local demo.')}]);return;
+    event.preventDefault();showMenu(button||target,[{label:'Share',action:share},{label:'Save to gallery',action:()=>collect({href:photoKey})},{label:'Report photo',action:()=>toast('Report received in the local demo.')},...await adminPhotoItems(photoKey)]);return;
   }
   if(text==='Follow'||text==='Following'){
     const key=button.dataset.followOwner||location.pathname;const following=toggleStored('following',key,button,'local-active');button.textContent=following?'Following':'Follow';return;

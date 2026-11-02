@@ -2,7 +2,7 @@
 [hidden] { display: none !important; }
 a[href="/signup"], button[aria-label="Sign up"] { display: none !important; }
 .photo-copyright, .photo-description { max-width: 700px; margin: 0 0 16px; color: #bbb; font: 400 14px/1.7 Poppins,sans-serif; overflow-wrap: anywhere; }
-.lightbox-caption span { min-width: 0; max-width: 700px; overflow-wrap: anywhere; }
+.lightbox-caption span { min-width: 0; max-width: 700px; text-align: center; overflow-wrap: anywhere; }
 .lightbox-caption p { margin: 0 0 8px; }
 .lightbox-caption strong, .lightbox-caption small, .lightbox-caption time, .gallery-photo time { display: block; }
 .gallery-photo figcaption p { margin: 0 0 8px; overflow-wrap: anywhere; }
@@ -203,11 +203,13 @@ button.local-delete { position: absolute; top: 8px; left: 8px; z-index: 2; width
 .local-comment-form button { border: 0; background: none; color: white; font: inherit; }
 .local-new-comment { padding: 16px 0; border-bottom: 1px solid #222; color: #ddd; }
 .local-new-comment strong { display: block; margin-bottom: 6px; color: white; }
-.local-lightbox { max-width: calc(100vw - 32px); width: max-content; height: calc(100dvh - 32px); padding: 0; border: 0; background: #050505; }
-.local-lightbox[open] { display: grid; grid-template-rows: minmax(0,1fr) auto; }
-.local-lightbox img, .local-lightbox video { display: block; min-width: 0; min-height: 0; width: 100%; max-width: 100%; height: 100%; object-fit: contain; }
-.local-lightbox .lightbox-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 20px; max-height: 40dvh; overflow-y: auto; box-sizing: border-box; padding: 12px 18px; }
-.lightbox-caption time { align-self: flex-end; margin-left: auto; color: #aaa; font-size: 12px; text-align: right; }
+.local-lightbox { max-width: calc(100vw - 32px); width: max-content; height: calc(100dvh - 32px); padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: #050505; }
+.local-lightbox[open] { display: flex; flex-direction: column; justify-content: center; }
+.lightbox-description { width: 0; min-width: 100%; box-sizing: border-box; max-height: 22dvh; overflow-y: auto; padding: 16px 72px 12px; color: #ddd; font: 400 14px/1.7 Poppins,sans-serif; overflow-wrap: anywhere; }
+.local-lightbox img, .local-lightbox video { display: block; flex: 0 1 auto; min-width: 0; min-height: 0; width: 100%; max-width: 100%; height: auto; max-height: 100%; object-fit: contain; }
+.local-lightbox .lightbox-description, .local-lightbox .lightbox-caption { flex: 0 0 auto; }
+.local-lightbox .lightbox-caption { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; max-height: 40dvh; overflow-y: auto; box-sizing: border-box; padding: 12px 18px; }
+.lightbox-caption time { align-self: center; color: #aaa; font-size: 12px; text-align: center; }
 .local-lightbox button { background: #222; color: white; border: 0; border-radius: 8px; padding: 6px 14px; font: inherit; }
 .local-lightbox [data-slide] { position: fixed; top: 50%; transform: translateY(-50%); z-index: 2; display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border-radius: 50%; background: #0009; }
 .local-lightbox [data-slide]:is(:hover,:focus-visible) { background: #444; }
@@ -250,3 +252,11 @@ button.local-delete { position: absolute; top: 8px; left: 8px; z-index: 2; width
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Log in is hidden on the public pages; the admin signs in at /admin */
+[data-track-id="onboarding_login"], header button[data-login-hidden] { display: none !important; }
+
+/* the header Log in button is hidden for visitors from first paint (the head script adds .signed-in) so the header never shifts */
+html:not(.signed-in) header button.css-ulcce1 { display: none !important; }
+/* "Log in" becomes "My account" once the session loads; reserve its width so the header does not shift */
+html.signed-in header button.css-ulcce1 { min-width: 126.5625px; }
