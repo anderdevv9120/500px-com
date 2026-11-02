@@ -1,5 +1,57 @@
 /* The per-page styles preserve the reference. These rules support local interactions. */
 [hidden] { display: none !important; }
+a[href="/signup"], button[aria-label="Sign up"] { display: none !important; }
+.photo-copyright, .photo-description { max-width: 700px; margin: 0 0 16px; color: #bbb; font: 400 14px/1.7 Poppins,sans-serif; overflow-wrap: anywhere; }
+.lightbox-caption span { min-width: 0; max-width: 700px; overflow-wrap: anywhere; }
+.lightbox-caption p { margin: 0 0 8px; }
+.lightbox-caption strong, .lightbox-caption small, .lightbox-caption time, .gallery-photo time { display: block; }
+.gallery-photo figcaption p { margin: 0 0 8px; overflow-wrap: anywhere; }
+/* Admin views reuse the gallery page tokens (gallery.css) and local-dialog inputs. */
+.admin-page { max-width: 1920px; margin: auto; padding: 32px 48px 64px; box-sizing: border-box; color: #f9f9f9; font: 400 14px/1.6 Poppins,sans-serif; }
+.admin-page h1 { margin: 24px 0 24px; font-size: clamp(28px,3vw,40px); font-weight: 500; line-height: 1.25; }
+.admin-page p { color: #aaa; }
+.admin-page a { color: inherit; }
+.admin-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 8px 0 24px; margin-bottom: 24px; border-bottom: 1px solid #292929; }
+.admin-toolbar h1 { margin: 0; }
+body[data-page="admin"] header nav { display: flex; } /* captured CSS hides header nav on narrow screens; admin has no mobile menu */
+.admin-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-left: auto; }
+.admin-page button:not(.admin-preview) { min-height: 44px; padding: 10px 20px; border: 1px solid #555; border-radius: 24px; background: transparent; color: #f9f9f9; font: 400 14px/1.5 Poppins,sans-serif; }
+.admin-page button:not(.admin-preview):hover { background: #292929; }
+.admin-page button.local-primary { border-color: #f9f9f9; background: #f9f9f9; color: #131313; font-weight: 500; }
+.admin-page button.local-primary:hover { border-color: #ddd; background: #ddd; }
+.admin-page button:disabled { opacity: .4; cursor: default; }
+.admin-page label { display: block; margin: 0 0 6px; color: #aaa; }
+.admin-page input { display: block; width: 100%; max-width: 480px; box-sizing: border-box; padding: 12px 14px; margin: 0 0 32px; background: #090909; color: #fff; border: 1px solid #333; border-radius: 12px; font: inherit; }
+.admin-photos { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,260px),1fr)); gap: 32px 24px; }
+.admin-photos article { min-width: 0; }
+.admin-photos img, .admin-photos video { display: block; width: 100%; aspect-ratio: 1.45; height: auto; object-fit: cover; }
+.admin-photos .admin-preview { position: relative; display: block; width: 100%; padding: 0; border: 0; border-radius: 0; background: #111; overflow: hidden; cursor: zoom-in; }
+.admin-preview img, .admin-preview video { transition: transform .4s ease; }
+.admin-preview:hover img, .admin-preview:hover video, .admin-preview:focus-visible img, .admin-preview:focus-visible video { transform: scale(1.05); }
+@media (prefers-reduced-motion: reduce) { .admin-preview img, .admin-preview video { transition: none; } }
+.admin-photos article > div { padding: 10px 0 0; overflow-wrap: anywhere; }
+.admin-photos article strong { display: block; font-weight: 400; font-size: 14px; }
+.admin-photos article p { margin: 0 0 12px; font-size: 12px; }
+.admin-photos article button + button { margin-left: 8px; }
+.admin-photos article button:not(.admin-preview) { min-height: 36px; padding: 6px 16px; font-size: 13px; }
+.admin-users { overflow-x: auto; border: 1px solid #292929; border-radius: 12px; }
+.admin-users table { width: 100%; min-width: 600px; border-collapse: collapse; }
+.admin-users th, .admin-users td { padding: 16px 20px; text-align: left; border-bottom: 1px solid #292929; }
+.admin-users thead th { color: #aaa; font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.admin-users tbody th { font-weight: 500; overflow-wrap: anywhere; }
+.admin-users td { color: #aaa; white-space: nowrap; }
+.admin-users tbody tr:hover { background: #1d1d1d; }
+.admin-users tbody tr:last-child > * { border-bottom: 0; }
+.admin-users th:last-child { text-align: right; }
+.admin-users td:last-child { width: 1%; }
+.admin-user-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.admin-page .admin-status { color: #f36576; }
+.admin-page .admin-status:empty { display: none; }
+.admin-loading { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; background: #000000b3; }
+.admin-loading::after { content: ""; width: 48px; height: 48px; box-sizing: border-box; border: 4px solid #ffffff33; border-top-color: #f9f9f9; border-radius: 50%; animation: admin-spin .8s linear infinite; }
+@keyframes admin-spin { to { transform: rotate(360deg); } }
+@media (max-width: 900px) { .admin-page { padding: 20px 24px 40px; } }
+@media (max-width: 600px) { .admin-page { padding: 16px 16px 32px; } .admin-toolbar-actions { margin-left: 0; } }
 html { scroll-behavior: smooth; }
 body { margin: 0; }
 body { overflow-x: clip; }
@@ -45,6 +97,14 @@ header [data-nav-item]:has([aria-expanded="true"]) svg path { fill: var(--mui-pa
 .local-dialog:not(.local-auth) label { display: block; margin: 16px 0 6px; }
 .local-dialog:not(.local-auth) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), .local-dialog select, .local-dialog textarea { width: 100%; border: 1px solid #333; border-radius: 12px; padding: 12px 14px; box-sizing: border-box; background: #090909; color: white; font: inherit; }
 .local-dialog input[type="checkbox"], .local-dialog input[type="radio"] { accent-color: white; }
+.local-dialog #admin-date {
+  color-scheme: dark;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M16 3v4M8 3v4M3 11h18'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-size: 20px 20px;
+  background-repeat: no-repeat;
+}
+.local-dialog #admin-date::-webkit-calendar-picker-indicator { width: 24px; height: 24px; margin: 0; opacity: 0; cursor: pointer; }
 .local-dialog button.primary, .local-primary { border: 0; border-radius: 12px; background: #f9f9f9; color: #111; padding: 12px 20px; font: 500 14px/1.5 Poppins,sans-serif; cursor: pointer; }
 .local-dialog button.primary:disabled { opacity: .4; cursor: default; }
 .local-dialog button.secondary { border: 1px solid #444; border-radius: 12px; background: #292929; color: white; padding: 10px 16px; font: inherit; }
@@ -97,13 +157,14 @@ button.upload-preview:not(:disabled):is(:hover, :focus-visible) .upload-cover-ov
 .local-auth [role="dialog"] { margin: 0 !important; width: 100% !important; max-width: 100% !important; max-height: none !important; }
 .local-auth [data-auth-scope] { position: static !important; inset: auto !important; z-index: auto !important; }
 .local-auth form { margin: 0; }
+.local-auth form button[type="submit"] { margin-top: 24px; }
 .local-auth .auth-notice { margin: 0 32px 24px; font-size: 12px; color: #aaa; text-align: center; }
-/* captured MUI checkbox: the real input is transparent over an empty box, so draw the checked/focus state here */
-.local-auth .MuiCheckbox-root:has(> input:checked) > div { background: #fff; border-color: #fff; }
-.local-auth .MuiCheckbox-root:has(> input:checked) > div::after { content: '✓'; display: block; color: #131313; font-size: 12px; font-weight: 700; line-height: 14px; text-align: center; }
-.local-auth .MuiCheckbox-root:has(> input:focus-visible) > div { outline: 2px solid #fff; outline-offset: 2px; }
-.local-auth form button[type="submit"]:disabled, .local-auth .auth-switch:disabled { opacity: .5; cursor: progress; }
-.local-auth .auth-switch { display: block; margin: 12px auto 0; padding: 8px; border: 0; background: none; color: inherit; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer; }
+.local-auth .auth-notice:empty { display: none; }
+.local-auth .MuiIconButton-root path { fill: currentColor; }
+.local-auth input:focus-visible { outline: none !important; }
+.local-auth .MuiOutlinedInput-root:focus-within fieldset { border-color: #f9f9f9; border-width: 2px; }
+.local-auth button:focus-visible { outline: 2px solid #f9f9f9; outline-offset: 2px; }
+.local-auth form button[type="submit"]:disabled { opacity: .5; cursor: progress; }
 .local-liked, .local-liked svg path { color: #f36576 !important; fill: #f36576 !important; }
 .local-saved, .local-saved svg path { color: #b4eef0 !important; fill: #b4eef0 !important; }
 .local-active { background: #2a2a2a !important; border-radius: 10px; }
@@ -142,10 +203,16 @@ button.local-delete { position: absolute; top: 8px; left: 8px; z-index: 2; width
 .local-comment-form button { border: 0; background: none; color: white; font: inherit; }
 .local-new-comment { padding: 16px 0; border-bottom: 1px solid #222; color: #ddd; }
 .local-new-comment strong { display: block; margin-bottom: 6px; color: white; }
-.local-lightbox { max-width: calc(100vw - 32px); width: max-content; padding: 0; border: 0; background: #050505; }
-.local-lightbox img, .local-lightbox video { display: block; width: auto; max-width: calc(100vw - 40px); height: auto; max-height: calc(100dvh - 100px); object-fit: contain; }
-.local-lightbox .lightbox-caption { display: flex; justify-content: space-between; gap: 20px; padding: 12px 18px; }
+.local-lightbox { max-width: calc(100vw - 32px); width: max-content; height: calc(100dvh - 32px); padding: 0; border: 0; background: #050505; }
+.local-lightbox[open] { display: grid; grid-template-rows: minmax(0,1fr) auto; }
+.local-lightbox img, .local-lightbox video { display: block; min-width: 0; min-height: 0; width: 100%; max-width: 100%; height: 100%; object-fit: contain; }
+.local-lightbox .lightbox-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 20px; max-height: 40dvh; overflow-y: auto; box-sizing: border-box; padding: 12px 18px; }
+.lightbox-caption time { align-self: flex-end; margin-left: auto; color: #aaa; font-size: 12px; text-align: right; }
 .local-lightbox button { background: #222; color: white; border: 0; border-radius: 8px; padding: 6px 14px; font: inherit; }
+.local-lightbox [data-slide] { position: fixed; top: 50%; transform: translateY(-50%); z-index: 2; display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border-radius: 50%; background: #0009; }
+.local-lightbox [data-slide]:is(:hover,:focus-visible) { background: #444; }
+.local-lightbox [data-slide="previous"] { left: 8px; }
+.local-lightbox [data-slide="next"] { right: 8px; }
 .local-lightbox .local-close { background: #0008; z-index: 2; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; font-size: 36px; line-height: 1; }
 .local-lightbox .local-delete { opacity: 1; top: 12px; left: 16px; width: 48px; height: 48px; padding: 0; border-radius: 50%; background: #0008; }
 .local-upload-preview { display: block; max-width: 100%; max-height: 240px; margin-top: 16px; object-fit: contain; }

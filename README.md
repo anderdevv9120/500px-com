@@ -31,7 +31,7 @@ The export requires Node.js 22 or newer and no dependencies. The workflow obtain
 - Username/password accounts and photo/video uploads to a Cloudflare Worker. Albums belong to their account and appear on `/p/guest?user=<username>` (`/p/guest` lists everyone's) and at `/galleries/guest?album=<id>`.
 - Password visibility/recovery UI, likes, saved galleries, follows, comments, sharing, and slideshow.
 
-The site contains 29 captured routes, 188 seeded photographs, 60 Quests, and 708 local assets, including the original Poppins font files and release PDFs. Photography and photographer credits are retained. The shared navigation omits Membership.
+The site contains 29 captured routes, the seeded photo catalog (including Grant previews), 60 Quests, and 708 local assets, including the original Poppins font files and release PDFs. Photography and photographer credits are retained. The shared navigation omits Membership.
 
 ## Files
 
@@ -46,7 +46,7 @@ The site contains 29 captured routes, 188 seeded photographs, 60 Quests, and 708
 
 ## Demo behavior and limits
 
-Log in / Sign up uses real accounts stored by the Worker (below): a username and a password of at least 6 characters, after checking the terms box. The session token is kept in browser storage; Log out ends it on the Worker too. Password recovery remains demo-only; the captured social and PULSEpx sign-in buttons are removed. Likes, follows, galleries, and comments live in browser storage. Contest submissions do not call a backend; Upload sends files to the guest-uploads Worker (below). Clear the `500px-local-demo` localStorage entry to reset onboarding and demo state.
+Log in uses accounts stored by the Worker. Public registration is disabled in the UI and API; only the main admin can create accounts at `/admin/users`. The session token is kept in browser storage; Log out ends it on the Worker too. Password recovery remains demo-only; the captured social and PULSEpx sign-in buttons are removed. Likes, follows, galleries, and comments live in browser storage. Contest submissions do not call a backend; Upload sends files to the guest-uploads Worker (below). Clear the `500px-local-demo` localStorage entry to reset onboarding and demo state.
 
 The original layouts, typography, public copy, and available images were captured from the live site. Feed content is a finite local snapshot. Additional photo/Quest URLs reuse the captured detail layout with seeded titles and images; uncaptured profiles reuse the sample profile. Search uses seeded results, and some filter data is representative. Blog layouts now follow the working ISO Blog reference, with condensed local text as described below. These areas are not a verified pixel-for-pixel copy of all live states.
 
@@ -56,7 +56,7 @@ The Quests hub contains 60 actual contests captured on October 28, 2026, includi
 
 All 20 captured Licensing Quest URLs now use a dedicated Juried-style Licensing detail template, with their own title, hero and captured submission dates, an ended state, Introduction/All Entries tabs, sharing, cash-award content, and Licensing rules. The Battle and general Juried samples retain their existing templates. Indexed official pages for [After Hours](https://500px.com/quest/1000005269-after-hours) and [On the Clock](https://500px.com/quest/1000005271-on-the-clock) supplied the sample structure, counts, cash awards and thematic guidance; the browser reference remains inaccessible, so pixel-level parity is unverified. Briefs are condensed/paraphrased, the other contests use representative brief/award text, and entry photos are seeded content. `catalog.json` carries the Licensing route metadata; `tools/prepare.mjs` preserves it when preparing captures. Run `tools/quest-licensing-check.mjs` with the same external `PLAYWRIGHT_MODULE` used by the gallery check. Desktop/mobile evidence is saved as `screenshots/quest-licensing-*`.
 
-App Store, Google Play, social links, support articles, and Getty Images links retain their external destinations. There is no live authentication, email delivery, payment, or licensing purchase integration. Guest uploads are the only publishing path.
+App Store, Google Play, social links, support articles, and Getty Images links retain their external destinations. Authentication and admin publishing use the Worker. Email delivery, payment, and licensing purchases remain demo-only.
 
 Licensing includes the original model release, property release, and contributor agreement PDFs, served locally. All seven guides have working desktop navigation, mobile Table of Contents, section deep links, and a dismissible app banner. Get started and manager links use the existing local login/upload demo; customer support opens local guidance. All five Grant collections open local gallery detail pages. `tools/finish-licensing.mjs` refreshes this snapshot without recapturing unrelated pages. Desktop/mobile evidence and focused check results are under `screenshots/licensing-*`.
 
@@ -72,15 +72,22 @@ Run `tools/blog-check.mjs` with the same external `PLAYWRIGHT_MODULE` to verify 
 
 ## Guest uploads (Cloudflare)
 
-Uploading needs an account; Upload opens Log in / Sign up first when you are signed out. Accounts are a username (1–30 characters, case-insensitive, unique) and a password of 6–200 characters, hashed with PBKDF2-SHA256 in the Worker; sessions last 30 days. Each **Choose files** pick adds to a preview list of photos and videos, where files can be removed before uploading. Upload creates a new album or adds to one of your own albums, and later batches in the same dialog go to the album it just created; uploads are credited to your username. Albums appear under **Galleries** on `/p/guest?user=<username>` (**My uploads** in the account menu), on `/p/guest` for everyone, and at `/galleries/guest?album=<id>`, with photos and playable videos in the lightbox. The Worker in `worker/` stores files in R2 and album/media rows in D1. The site stays static, and seeded content never depends on the Worker: if it is down, only the upload dialog and guest pages show an error.
+Only the main admin can publish or manage photos/videos. Open `/admin` for uploaded media and the seeded photo catalog, or `/admin/users` to add, rename, reset passwords, and delete regular users. Existing sample accounts remain in place. Only the main admin can upload, edit titles/descriptions/posting dates, assign owners, or delete content; normal accounts retain login and public viewing. The account menu links admins to both publishing and administration.
 
+Migration `0004_admin.sql` creates the requested `quyenday` account with the supplied initial password (PBKDF2 hash only), protects it from rename/deletion, disables legacy admin-token authorization, adds per-photo descriptions and stores seeded-photo overrides. Apply this migration **before** deploying the new Worker. It preserves existing users, albums and files, except that older sessions for the reserved admin username are revoked. Keep the initial password private and rotate it before sharing this site publicly; the main account is managed directly in D1.
+
+The upload dialog lets the admin choose a user for a new album, or add files to any existing album. A successful photo/video batch shows a notification, including the failed count for partial uploads. Moving one uploaded photo creates an album for its new owner and preserves sibling ownership and file URLs. Each user has an **Albums & media** button linking to their profile's Galleries (albums) and Works tabs. Deleting a user checks their current media count and asks for confirmation; users with media receive a warning that deletion permanently removes all of their albums, photos and videos. Confirmed deletion removes uploaded R2 files and hides their assigned seeded photos. Renaming/resetting a regular user revokes its sessions.
+
+Every photo detail, gallery caption and lightbox shows the fixed notice: **All copyrights belong to the owners of Trust Web, may not be reproduced in any way!** This notice is separate from the optional user-defined description shown in the image view modal. Descriptions default to empty; admins may edit each photo's description and posting date. Transferred seeded photos appear under the recipient's Works tab (`/p/guest?user=<username>&view=works`).
+
+The Worker stores uploads in R2 and metadata in D1. Seeded photo edits/deletions are D1 overrides; original static assets stay in the repository. Public pages use the original snapshot if the overrides API is unavailable, so those edits/deletions require a reachable Worker to be reflected. Static assets and original URLs are not access-controlled.
 Limits, enforced by the Worker:
 
 - Photos (JPEG, PNG, WebP, GIF, AVIF) up to 20 MB. Videos (MP4, WebM, MOV) up to 95 MB, a **temporary** limit.
 - File types are checked by their first bytes after upload, not only by the declared type.
 - 50 uploads per visitor per hour (`UPLOADS_PER_HOUR`) and 5 GB total storage (`STORAGE_CAP_BYTES`), both Worker vars in `wrangler.toml`.
 - Album title 1–60 characters, description ≤ 280, media title ≤ 100 (defaults to the file name).
-- Creating albums and uploading need `Authorization: Bearer <token>` from `POST /api/signup` or `POST /api/login` (`{username, password}` → `{token, username}`); you can only upload into your own albums. `POST /api/logout` ends a session. Reading albums and media stays public; `?user=<username>` filters `GET /api/albums` and `GET /api/media`.
+- Creating albums and uploading need the main admin session from `POST /api/login` (`{username, password}` → `{token, username, isAdmin}`). `POST /api/signup` always returns 403. `GET /api/me` validates a session. An admin can publish into any album, credited to its owner. `POST /api/logout` ends a session. Reading albums and media stays public; `?user=<username>` filters `GET /api/albums` and `GET /api/media`.
 - There is no login throttling yet.
 - CORS is limited to `ALLOWED_ORIGINS` (GitHub Pages plus localhost:5000).
 
@@ -90,7 +97,7 @@ Clicking Upload prepares the selected files in the browser before any media uplo
 
 ### Local development
 
-The site uses the deployed Worker everywhere, including localhost, so local dev shows the same guest uploads as Pages. Uploads you make locally go to production. To use a local Worker instead, run `localStorage.uploadApi = 'http://127.0.0.1:8787'` in the browser console (`delete localStorage.uploadApi` to switch back); `tools/uploads-check.mjs` sets this itself. Create `worker/.dev.vars` (git-ignored) containing `ADMIN_TOKEN=dev-admin-token`, then run the Worker next to `npm start`:
+All pages, including localhost, default to the deployed Worker and remote D1/R2 storage. Local uploads and admin changes affect production data. An explicit `localStorage.uploadApi` override still takes precedence; clear an old override with `delete localStorage.uploadApi` and reload to restore the remote default. To opt into local storage, set `localStorage.uploadApi = 'http://127.0.0.1:8787'` and run the local Worker next to `npm start`:
 
 ```sh
 cd worker && npm install && npm run migrate:local && npm run dev
@@ -100,10 +107,10 @@ cd worker && npm install && npm run migrate:local && npm run dev
 
 Both checks need a **fresh** local state, so point `--persist-to` at an empty temp directory. `WRANGLER_DISABLE_REQUEST_BODY_DRAINING=1` stops `wrangler dev` from holding the early 413 response until the body is drained. The exact commands are in each file's header.
 
-- `tools/upload-api-check.mjs` checks the Worker API: accounts, sessions, album ownership, albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` (default `http://127.0.0.1:8787`) and `ADMIN_TOKEN` (default `dev-admin-token`) are optional.
+- `tools/upload-api-check.mjs` checks the Worker API: accounts, sessions, album ownership, albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` defaults to `http://127.0.0.1:8787`; `ADMIN_USERNAME`/`ADMIN_PASSWORD` default to the account seeded by migration 0004.
 - `tools/uploads-check.mjs` checks the browser flow: the upload dialog, EXIF stripping, the guest profile, albums, the lightbox, and the exported site. It needs `npm start` and `wrangler dev` with default vars, plus `PLAYWRIGHT_MODULE` pointing at an external `playwright-core/index.mjs`. `SITE_URL` and `API_URL` are optional.
 - `tools/image-upload-check.mjs` checks WebP conversion, size savings, transparency, orientation, metadata removal, unsupported encoders, failed conversions, and unchanged media. It needs `npm start` and `PLAYWRIGHT_MODULE`, and intercepts API requests so nothing is uploaded to a Worker.
-- `node tools/upload-api-check.mjs --smoke` is safe to run against production. It signs up a `smoke-<timestamp>` account, creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album. The smoke account stays behind, since there is no user delete endpoint. It requires `API_URL` and `ADMIN_TOKEN`.
+- `node tools/upload-api-check.mjs --smoke` is safe to run against production. It logs in as the main admin, creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album. It requires `API_URL` and `ADMIN_PASSWORD`; `ADMIN_USERNAME` defaults to the main account.
 
 ### Deploy (one time)
 
@@ -114,14 +121,13 @@ npx wrangler login
 npx wrangler r2 bucket create 500px-guest-media
 npx wrangler d1 create 500px-guest-uploads    # paste database_id into wrangler.toml
 npm run migrate:remote
-npx wrangler secret put ADMIN_TOKEN           # enter a long random value
 npm run deploy                                # prints the *.workers.dev URL
 ```
 
 Set that URL as the production `uploadApi` in `app.js`, then smoke-test:
 
 ```sh
-API_URL=https://<worker>.workers.dev ADMIN_TOKEN=<token> node tools/upload-api-check.mjs --smoke
+API_URL=https://<worker>.workers.dev ADMIN_PASSWORD=<password> node tools/upload-api-check.mjs --smoke
 ```
 
 Later Worker changes only need `npm run deploy`. Schema changes also need `npm run migrate:remote`.
@@ -130,16 +136,18 @@ Migration `0002_users.sql` adds accounts and **drops all existing guest albums a
 
 Migration `0003_poster_time.sql` adds `media.poster_time`, the cover frame (in seconds) chosen with the slider under each video in the upload dialog. Run `npm run migrate:remote` before deploying, or uploads will fail on the missing column.
 
-### Admin deletes
+### Admin APIs
 
-There is no moderation UI. Use the admin token to remove media or a whole album; R2 objects are deleted with their rows:
+All `/api/admin/*` endpoints require the main admin's Bearer session. The old `ADMIN_TOKEN` secret no longer grants access.
 
-```sh
-curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>.workers.dev/api/media/<mediaId>
-curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>.workers.dev/api/albums/<albumId>
-```
+- `GET/POST /api/admin/users`, `GET/PUT/DELETE /api/admin/users/:id`: regular-user management. The single-user GET includes `mediaCount`. Deleting a user with content returns 409 unless the DELETE body includes `{deleteMedia: true}` after confirmation; confirmed deletion removes their albums, uploaded files, assigned seeded photos and sessions. Editing/deleting the main admin returns 403.
+- `GET /api/admin/media`: all uploaded photos/videos, including owner IDs.
+- `PUT/DELETE /api/admin/media/:id`: uploaded-media metadata, ownership and deletion.
+- `PUT/DELETE /api/admin/seeded/:photoId`: metadata/ownership overrides and hiding seeded photos.
+- Photo updates accept `{title, description, createdAt, ownerId}`; `createdAt` is an integer Unix timestamp in milliseconds. Seeded photos may keep their original credit with `ownerId: null`.
+- `GET /api/photo-overrides` is public. Existing `DELETE /api/media/:id` and `DELETE /api/albums/:id` now require the main admin session, and remove R2 files with their rows.
 
-Both return `204`, `401` for a missing or wrong token, and `404` for an unknown id. Media ids appear in `GET /api/media` and album ids in `GET /api/albums`.
+`worker/test/admin.test.js` covers the real migrations, admin login, blocked registration, regular-user denials, protected admin, user CRUD, date/owner validation, single-photo transfer, sibling preservation and seeded overrides using in-memory SQLite (Node.js 22.13+). Run it with `npm test` from `worker/`. Browser fixtures use the main admin and can override `ADMIN_USERNAME`/`ADMIN_PASSWORD`; they must point at a disposable local Worker.
 
 ## Verification
 

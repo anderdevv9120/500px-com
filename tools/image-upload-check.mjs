@@ -10,12 +10,12 @@ try {
   let uploads = 0;
   let uploadGate = Promise.resolve();
   page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(() => { localStorage.uploadApi = 'http://127.0.0.1:8787'; });
+  await page.addInitScript(() => { localStorage.uploadApi = 'http://127.0.0.1:8787'; localStorage['500px-local-demo']=JSON.stringify({user:{name:'quyenday',token:'test-admin',isAdmin:true}}); });
   await page.route('http://127.0.0.1:8787/**', async route => {
     const request = route.request(), bytes = request.postDataBuffer();
     const headers = {'access-control-allow-origin':'*', 'access-control-allow-methods':'GET, PUT, OPTIONS', 'access-control-allow-headers':'Content-Type'};
     if (request.method() === 'PUT') { uploads++; await uploadGate; }
-    const body = request.method() === 'POST' ? {id:'test'} : bytes ? {type:request.headers()['content-type'], bytes:[...bytes]} : [];
+    const body = request.url().endsWith('/api/me') ? {username:'quyenday',isAdmin:true} : request.url().endsWith('/api/admin/users') ? [{id:'test-admin',username:'quyenday',isAdmin:true}] : request.method() === 'POST' ? {id:'test'} : bytes ? {type:request.headers()['content-type'], bytes:[...bytes]} : [];
     await route.fulfill({status:200, headers, contentType:'application/json', body:JSON.stringify(body)});
   });
   await page.goto((process.env.SITE_URL || 'http://127.0.0.1:5000') + '/upload', {waitUntil:'networkidle'});

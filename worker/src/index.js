@@ -1,7 +1,8 @@
 import { checkUpload, cleanText, extensionFor, posterTime, sniffMatches, sniffMediaType } from './rules.js';
+import catalog from '../../catalog.json' with { type: 'json' };
 
 export const json = (data, status = 200) =>
-  status === 204 ? new Response(null, { status }) : Response.json(data, { status });
+  status === 204 ? new Response(null, { status }) : Response.json(data, { status, headers:{'Cache-Control':'no-store'} });
 
 export const error = (status, message) => json({ error: message }, status);
 
@@ -24,7 +25,9 @@ export const toMedia = (row, origin) => ({
   kind: row.kind,
   url: `${origin}/media/${row.r2_key}`,
   title: row.title,
+  description: row.description || '',
   author: row.author,
+  ownerId: row.user_id,
   contentType: row.content_type,
   size: row.size,
   posterTime: row.poster_time,
@@ -90,6 +93,9 @@ async function createAlbum(request, env, user) {
   if (!body) return error(400, 'Request body must be a JSON object');
   const title = cleanText(body.title, 60);
   if (!title) return error(400, 'Album title is required');
+  if (body.ownerId != null && typeof body.ownerId !== 'string') return error(400, 'Choose an existing user');
+  const owner = body.ownerId ? await env.DB.prepare('SELECT id, username FROM users WHERE id = ?').bind(body.ownerId).first() : user;
+  if (!owner) return error(400, 'Choose an existing user');
   const album = {
     id: crypto.randomUUID(),
     title,
@@ -97,9 +103,9 @@ async function createAlbum(request, env, user) {
     created_at: Date.now(),
   };
   await env.DB.prepare('INSERT INTO albums (id, user_id, title, description, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(album.id, user.id, album.title, album.description, album.created_at)
+    .bind(album.id, owner.id, album.title, album.description, album.created_at)
     .run();
-  return json(toAlbum({ ...album, username: user.username, count: 0 }, ''), 201);
+  return json(toAlbum({ ...album, username: owner.username, count: 0 }, ''), 201);
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -128,7 +134,7 @@ async function startSession(env, user) {
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at) VALUES (?, ?, ?)')
     .bind(hex(await sha256(token)), user.id, Date.now()).run();
-  return { token, username: user.username };
+  return { token, username: user.username, isAdmin: user.is_admin === 1 };
 }
 
 async function readCredentials(request) {
@@ -140,7 +146,7 @@ async function readCredentials(request) {
   return { username, password };
 }
 
-async function signup(request, env) {
+async function createUser(request, env) {
   const { username, password, invalid } = await readCredentials(request);
   if (invalid) return invalid;
   const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
@@ -152,7 +158,7 @@ async function signup(request, env) {
     if (/UNIQUE/.test(err.message)) return error(409, 'That username is taken');
     throw err;
   }
-  return json(await startSession(env, user), 201);
+  return json({id: user.id, username, isAdmin: false}, 201);
 }
 
 // ponytail: no login throttling; add a per-IP attempt counter (like the upload limit) if accounts get abused
@@ -160,7 +166,7 @@ async function login(request, env) {
   const { username, password, invalid } = await readCredentials(request);
   if (invalid) return invalid;
   const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
-  if (!user) return error(401, 'Wrong username or password');
+  if (!user || !user.password.includes(':')) return error(401, 'Wrong username or password');
   const [rounds, salt, stored] = user.password.split(':');
   if (!sameDigest(encode(await pbkdf2(password, salt, Number(rounds))), encode(stored))) return error(401, 'Wrong username or password');
   return json(await startSession(env, user));
@@ -175,14 +181,13 @@ async function currentUser(request, env) {
   const token = bearer(request);
   if (!token) return null;
   return env.DB.prepare(
-    'SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.created_at > ?',
+    'SELECT u.id, u.username, u.is_admin FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.created_at > ?',
   ).bind(hex(await sha256(token)), Date.now() - SESSION_MS).first();
 }
 
 async function uploadMedia(request, env, origin, url, albumId, user) {
-  const album = await env.DB.prepare('SELECT user_id FROM albums WHERE id = ?').bind(albumId).first();
+  const album = await env.DB.prepare('SELECT a.user_id, u.username FROM albums a JOIN users u ON u.id = a.user_id WHERE a.id = ?').bind(albumId).first();
   if (!album) return error(404, 'Album not found');
-  if (album.user_id !== user.id) return error(403, 'You can only upload to your own albums');
 
   const lengthHeader = request.headers.get('Content-Length');
   if (lengthHeader === null) return error(411, 'Content-Length header is required');
@@ -221,7 +226,7 @@ async function uploadMedia(request, env, origin, url, albumId, user) {
       content_type: contentType,
       size: stored.size,
       title: cleanText(url.searchParams.get('title'), 100, 'Untitled'),
-      author: user.username,
+      author: album.username,
       poster_time: check.kind === 'video' ? posterTime(url.searchParams.get('poster')) : 0,
       created_at: Date.now(),
     };
@@ -254,19 +259,9 @@ async function serveMedia(request, env, key) {
   return new Response(object.body, { headers });
 }
 
-async function isAdmin(request, env) {
-  if (!env.ADMIN_TOKEN) return false;
-  const [a, b] = await Promise.all([sha256(bearer(request)), sha256(env.ADMIN_TOKEN)]);
-  return sameDigest(a, b);
-}
-
-const notYours = 'You can only delete your own uploads';
-
-// ownerId: the signed-in user's id, or null for the admin token (deletes anything)
-async function deleteAlbum(env, id, ownerId) {
+async function deleteAlbum(env, id) {
   const album = await env.DB.prepare('SELECT user_id FROM albums WHERE id = ?').bind(id).first();
   if (!album) return error(404, 'Album not found');
-  if (ownerId && album.user_id !== ownerId) return error(403, notYours);
   const { results } = await env.DB.prepare('SELECT r2_key FROM media WHERE album_id = ?').bind(id).all();
   // ponytail: R2 delete takes up to 1000 keys per call; fine for a demo capped by storage, chunk if it ever matters
   if (results.length) await env.MEDIA.delete(results.map((r) => r.r2_key));
@@ -277,10 +272,9 @@ async function deleteAlbum(env, id, ownerId) {
   return json(null, 204);
 }
 
-async function deleteMedia(env, id, ownerId) {
+async function deleteMedia(env, id) {
   const row = await env.DB.prepare('SELECT m.r2_key, m.album_id, a.user_id FROM media m JOIN albums a ON a.id = m.album_id WHERE m.id = ?').bind(id).first();
   if (!row) return error(404, 'Media not found');
-  if (ownerId && row.user_id !== ownerId) return error(403, notYours);
   await env.MEDIA.delete(row.r2_key);
   // an album with no media is invisible everywhere, so drop it with its last item
   await env.DB.batch([
@@ -290,15 +284,126 @@ async function deleteMedia(env, id, ownerId) {
   return json(null, 204);
 }
 
+async function listOverrides(env) {
+  const { results } = await env.DB.prepare('SELECT p.*, u.username AS author FROM photo_overrides p LEFT JOIN users u ON u.id = p.user_id').all();
+  return results.map(row => ({id: row.id, title: row.title, description: row.description, ownerId: row.user_id, author: row.author, createdAt: row.created_at, deleted: Boolean(row.deleted)}));
+}
+
+async function adminUsers(request, env, id) {
+  if (request.method === 'GET' && !id) {
+    const { results } = await env.DB.prepare('SELECT id, username, is_admin AS isAdmin FROM users ORDER BY is_admin DESC, username').all();
+    return json(results);
+  }
+  if (request.method === 'POST' && !id) return createUser(request, env);
+  const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(id || '').first();
+  if (!user) return error(404, 'User not found');
+  if (request.method === 'GET') {
+    const owned = await env.DB.prepare('SELECT (SELECT COUNT(*) FROM media m JOIN albums a ON a.id = m.album_id WHERE a.user_id = ?1) + (SELECT COUNT(*) FROM photo_overrides WHERE user_id = ?1 AND deleted = 0) AS n').bind(id).first();
+    return json({id:user.id, username:user.username, isAdmin:Boolean(user.is_admin), mediaCount:owned.n});
+  }
+  if (user.is_admin) return error(403, 'The main admin account is protected');
+  if (request.method === 'DELETE') {
+    const owned = await env.DB.prepare('SELECT (SELECT COUNT(*) FROM media m JOIN albums a ON a.id = m.album_id WHERE a.user_id = ?1) + (SELECT COUNT(*) FROM photo_overrides WHERE user_id = ?1 AND deleted = 0) AS n').bind(id).first();
+    const body = await readJson(request);
+    if (owned.n && body?.deleteMedia !== true) return error(409, 'This user has media. Confirm deletion to remove all of their albums, photos and videos.');
+    const { results } = await env.DB.prepare('SELECT m.r2_key FROM media m JOIN albums a ON a.id = m.album_id WHERE a.user_id = ?').bind(id).all();
+    for (let offset = 0; offset < results.length; offset += 1000) {
+      await env.MEDIA.delete(results.slice(offset, offset + 1000).map(row => row.r2_key));
+    }
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
+      env.DB.prepare('UPDATE photo_overrides SET user_id = NULL, deleted = 1 WHERE user_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM media WHERE album_id IN (SELECT id FROM albums WHERE user_id = ?)').bind(id),
+      env.DB.prepare('DELETE FROM albums WHERE user_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
+    ]);
+    return json(null, 204);
+  }
+  if (request.method !== 'PUT') return error(405, 'Method not allowed');
+  const body = await readJson(request);
+  const username = cleanText(body?.username, 30);
+  if (!username) return error(400, 'Username is required');
+  let password = user.password;
+  if (body.password) {
+    if (typeof body.password !== 'string' || body.password.length < 6 || body.password.length > 200) return error(400, 'Password must be 6–200 characters');
+    const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+    password = `${PBKDF2_ROUNDS}:${salt}:${await pbkdf2(body.password, salt, PBKDF2_ROUNDS)}`;
+  }
+  const taken = await env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?').bind(username, id).first();
+  if (taken) return error(409, 'That username is taken');
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET username = ?, password = ? WHERE id = ?').bind(username, password, id),
+    env.DB.prepare('UPDATE media SET author = ? WHERE album_id IN (SELECT id FROM albums WHERE user_id = ?)').bind(username, id),
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
+  ]);
+  return json({id, username, isAdmin: false});
+}
+
+async function editPhoto(request, env, id, seeded) {
+  const source = seeded ? catalog.photos.find(photo => photo.href.split('/').pop() === id)
+    : await env.DB.prepare('SELECT m.*, a.user_id FROM media m JOIN albums a ON a.id = m.album_id WHERE m.id = ?').bind(id).first();
+  if (!source) return error(404, 'Photo not found');
+  if (request.method === 'DELETE') {
+    if (!seeded) return deleteMedia(env, id);
+    await env.DB.prepare('INSERT INTO photo_overrides (id, title, description, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO UPDATE SET deleted = 1').bind(id, source.title, '').run();
+    return json(null, 204);
+  }
+  if (request.method !== 'PUT') return error(405, 'Method not allowed');
+  const body = await readJson(request);
+  const title = cleanText(body?.title, 100);
+  const description = cleanText(body?.description, 280);
+  const createdAt = body?.createdAt;
+  if (!title) return error(400, 'Title is required');
+  if (!Number.isSafeInteger(createdAt) || createdAt < 0 || createdAt > 8640000000000000) return error(400, 'Choose a valid posting date');
+  if (body.ownerId != null && typeof body.ownerId !== 'string') return error(400, 'Choose an existing user');
+  const owner = body.ownerId ? await env.DB.prepare('SELECT id, username FROM users WHERE id = ?').bind(body.ownerId).first() : null;
+  if ((body.ownerId || !seeded) && !owner) return error(400, 'Choose an existing user');
+  if (seeded) {
+    await env.DB.prepare('INSERT INTO photo_overrides (id, title, description, user_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, description = excluded.description, user_id = excluded.user_id, created_at = excluded.created_at, deleted = 0')
+      .bind(id, title, description, owner?.id ?? null, createdAt).run();
+  } else {
+    const statements = [];
+    let albumId = source.album_id;
+    if (owner.id !== source.user_id) {
+      // A single photo moves into a new album; its siblings keep their owner.
+      albumId = crypto.randomUUID();
+      statements.push(env.DB.prepare('INSERT INTO albums (id, user_id, title, description, created_at) VALUES (?, ?, ?, ?, ?)').bind(albumId, owner.id, title.slice(0, 60), description, createdAt));
+    }
+    statements.push(env.DB.prepare('UPDATE media SET title = ?, description = ?, created_at = ?, author = ?, album_id = ? WHERE id = ?').bind(title, description, createdAt, owner.username, albumId, id));
+    statements.push(env.DB.prepare('DELETE FROM albums WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM media WHERE album_id = ?1)').bind(source.album_id));
+    await env.DB.batch(statements);
+  }
+  return json({id, title, description, createdAt, ownerId: owner?.id ?? null});
+}
+
 async function route(request, env) {
   const url = new URL(request.url);
   const { origin, pathname } = url;
   const { method } = request;
   if (method === 'OPTIONS') return json(null, 204);
 
-  if (method === 'POST' && pathname === '/api/signup') return signup(request, env);
+  if (pathname === '/api/signup') return error(403, 'Registration is disabled');
   if (method === 'POST' && pathname === '/api/login') return login(request, env);
   if (method === 'POST' && pathname === '/api/logout') return logout(request, env);
+  if (pathname === '/api/me' && method === 'GET') {
+    const user = await currentUser(request, env);
+    return user ? json({id: user.id, username: user.username, isAdmin: user.is_admin === 1}) : error(401, 'Log in first');
+  }
+  if (pathname === '/api/photo-overrides' && method === 'GET') return json(await listOverrides(env));
+  if (pathname.startsWith('/api/admin/')) {
+    const user = await currentUser(request, env);
+    if (!user) return error(401, 'Log in first');
+    if (!user.is_admin) return error(403, 'Only the main admin can manage content');
+    const users = pathname.match(/^\/api\/admin\/users(?:\/([^/]+))?$/);
+    if (users) return adminUsers(request, env, users[1]);
+    if (pathname === '/api/admin/media' && method === 'GET') {
+      const { results } = await env.DB.prepare('SELECT m.*, a.user_id FROM media m JOIN albums a ON a.id = m.album_id ORDER BY m.created_at DESC').all();
+      return json(results.map(row => toMedia(row, origin)));
+    }
+    const photo = pathname.match(/^\/api\/admin\/(seeded|media)\/([^/]+)$/);
+    if (photo) return editPhoto(request, env, photo[2], photo[1] === 'seeded');
+    return error(404, 'Not found');
+  }
 
   const albumMatch = pathname.match(/^\/api\/albums\/([^/]+)$/);
   const uploadMatch = pathname.match(/^\/api\/albums\/([^/]+)\/media$/);
@@ -307,6 +412,7 @@ async function route(request, env) {
   if ((pathname === '/api/albums' && method === 'POST') || (uploadMatch && method === 'PUT')) {
     const user = await currentUser(request, env);
     if (!user) return error(401, 'Log in to upload');
+    if (!user.is_admin) return error(403, 'Only the main admin can upload');
     return uploadMatch ? uploadMedia(request, env, origin, url, uploadMatch[1], user) : createAlbum(request, env, user);
   }
   const mediaMatch = pathname.match(/^\/media\/(.+)$/);
@@ -314,9 +420,10 @@ async function route(request, env) {
   if (pathname === '/api/media' && method === 'GET') return listMedia(env, origin, url);
   const mediaIdMatch = pathname.match(/^\/api\/media\/([^/]+)$/);
   if ((albumMatch || mediaIdMatch) && method === 'DELETE') {
-    const user = (await isAdmin(request, env)) ? {id: null} : await currentUser(request, env);
+    const user = await currentUser(request, env);
     if (!user) return error(401, 'Log in to delete');
-    return albumMatch ? deleteAlbum(env, albumMatch[1], user.id) : deleteMedia(env, mediaIdMatch[1], user.id);
+    if (!user.is_admin) return error(403, 'Only the main admin can delete');
+    return albumMatch ? deleteAlbum(env, albumMatch[1]) : deleteMedia(env, mediaIdMatch[1]);
   }
   return error(404, 'Not found');
 }

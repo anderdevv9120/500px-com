@@ -13,10 +13,11 @@ const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chr
 const origin=process.env.SITE_URL||'http://127.0.0.1:5000';
 const api=process.env.API_URL||'http://127.0.0.1:8787';
 const errors=[];
-const signup=async username=>{
-  const r=await fetch(api+'/api/signup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password:'secret1'})});
-  assert.equal(r.status,201,`signup ${username}`);
-  return {name:username,token:(await r.json()).token};
+const loginAdmin=async()=>{
+  const r=await fetch(api+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:process.env.ADMIN_USERNAME||'quyenday',password:process.env.ADMIN_PASSWORD||'quyenday123'})});
+  assert.equal(r.status,200,'admin login');
+  const session=await r.json();
+  return {name:session.username,token:session.token,isAdmin:session.isAdmin};
 };
 
 // Fixtures: the real JPEG with an APP1 "Exif" segment spliced in after SOI. Its big-endian TIFF IFD0 holds
@@ -45,8 +46,9 @@ const files=[
 try {
   const context=await browser.newContext({viewport:{width:1024,height:900}});
   await context.addInitScript(api=>{try{localStorage.uploadApi=api}catch{}},api); // never upload to production
-  // uploads need an account: every page starts signed in as `checker`
-  await context.addInitScript(user=>{try{const s=JSON.parse(localStorage['500px-local-demo']||'{}');if(!s.user){s.user=user;localStorage['500px-local-demo']=JSON.stringify(s);}}catch{}},await signup('checker'));
+  // Uploads require the main admin; regular users are created through its protected API.
+  const admin=await loginAdmin();
+  await context.addInitScript(user=>{try{const s=JSON.parse(localStorage['500px-local-demo']||'{}');if(!s.user){s.user=user;localStorage['500px-local-demo']=JSON.stringify(s);}}catch{}},admin);
   const page=await context.newPage();
   page.on('pageerror',error=>errors.push(error.message));
 
@@ -162,10 +164,13 @@ try {
 
   // guest gallery
   const title='<img src=x onerror=alert(1)>',author=`"Q" & 'A' 📷`; // author is the account's username
-  const owner=await signup(author),auth={authorization:`Bearer ${owner.token}`};
+  const auth={authorization:`Bearer ${admin.token}`};
+  const userResponse=await fetch(api+'/api/admin/users',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({username:author,password:'secret1'})});
+  assert.equal(userResponse.status,201);
+  const owner=await userResponse.json();
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
   const post=(path,init)=>fetch(api+path,init).then(async r=>{assert.ok(r.ok,`${path} ${r.status}`);return r.json();});
-  const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({title})});
+  const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({title,ownerId:owner.id})});
   for(const [file,type,body] of [['a.png','image/png',png],['b.mp4','video/mp4',mp4]])
     await post(`/api/albums/${seeded.id}/media?title=${file}`,{method:'PUT',headers:{'content-type':type,...auth},body});
   const guest=await context.newPage();
@@ -185,7 +190,7 @@ try {
   assert.equal(await guest.locator('[data-gallery-back]').textContent(),`← Galleries by ${author}`);
   assert.equal(await guest.locator('[data-gallery-back]').getAttribute('href'),`/p/guest?user=${encodeURIComponent(author)}&view=galleries`);
   for(const caption of await guest.locator('.gallery-photo figcaption').allTextContents())assert.ok(caption.includes(author),caption);
-  await guest.locator('.gallery-photo:has(video) button').click();
+  await guest.locator('.gallery-photo:has(video) [data-gallery-photo]').click();
   await guest.locator('.local-lightbox video[controls]').waitFor();
   await guest.locator('[data-slide="next"]').click();
   await guest.locator('.local-lightbox img').waitFor();
@@ -243,11 +248,11 @@ try {
   assert.ok(await cells.locator('video').count()>=1);
   // the first cell opens the lightbox only; an upload dialog must never be created (it would be replaced, so watch for it)
   await prof.evaluate(()=>{window.uploadOpened=false;new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.querySelector?.('#upload-file'))window.uploadOpened=true;}).observe(document.body,{childList:true,subtree:true});});
-  await cells.first().locator('button').click();
+  await cells.first().locator('[data-gallery-photo]').click();
   await prof.locator('.local-lightbox').waitFor();
   assert.equal(await prof.evaluate(()=>window.uploadOpened),false,'upload dialog opened');
   await prof.keyboard.press('Escape');
-  await cells.filter({has:prof.locator('video')}).first().locator('button').click();
+  await cells.filter({has:prof.locator('video')}).first().locator('[data-gallery-photo]').click();
   await prof.locator('.local-lightbox video[controls]').waitFor();
   await prof.keyboard.press('Escape');
   await prof.goto(origin+'/discover',{waitUntil:'networkidle'});

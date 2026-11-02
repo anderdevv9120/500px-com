@@ -110,6 +110,10 @@ try{
     await fs.writeFile(`pages/${file}`,text);
   }
   for(const photo of catalog.photos)if(replacements.has(photo.src))photo.src=replacements.get(photo.src);
+  const galleries=JSON.parse(await fs.readFile('pages/galleries.json','utf8'));
+  for(const photo of galleries.grants.flatMap(gallery=>gallery.photos)){
+    if(!catalog.photos.some(item=>item.src===photo.src))catalog.photos.push({...photo,href:'/photo/grant-'+photo.src.split('/').pop().replace(/\.[^.]+$/,'')});
+  }
   await fs.writeFile('catalog.json',JSON.stringify(catalog,null,2));
   await fs.copyFile('pages/welcome.html','index.html');
   await fs.writeFile('.reference/assets.json',JSON.stringify([...assets],null,2));

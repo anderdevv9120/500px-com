@@ -11,7 +11,9 @@ import { readFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 
 const API = process.env.API_URL || 'http://127.0.0.1:8787';
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'dev-admin-token';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'quyenday';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'quyenday123';
+let ADMIN_TOKEN;
 
 const UPLOADS_PER_HOUR = Number(process.env.CHECK_UPLOADS_PER_HOUR);
 const STORAGE_CAP = Number(process.env.CHECK_STORAGE_CAP);
@@ -22,24 +24,29 @@ const postJson = (path, body, token) => call(path, {
   headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },
   body: JSON.stringify(body),
 });
-const signup = async (username, password = 'secret1') => {
-  const res = await postJson('/api/signup', { username, password });
-  assert.equal(res.status, 201);
+const login = async (username = ADMIN_USERNAME, password = ADMIN_PASSWORD) => {
+  const res = await postJson('/api/login', { username, password });
+  assert.equal(res.status, 200);
   return (await res.json()).token;
+};
+const createUser = async (username, password = 'secret1') => {
+  const res = await postJson('/api/admin/users', { username, password }, ADMIN_TOKEN);
+  assert.equal(res.status, 201);
+  return login(username, password);
 };
 let token; // the account every section below uploads as
 const postAlbum = (body, as = token) => postJson('/api/albums', body, as);
 
 // ---- smoke (production-safe: everything it creates is deleted) ----
-//   API_URL=https://<worker>.workers.dev ADMIN_TOKEN=<secret> node tools/upload-api-check.mjs --smoke
+//   API_URL=https://<worker>.workers.dev ADMIN_PASSWORD=<password> node tools/upload-api-check.mjs --smoke
 if (process.argv.includes('--smoke')) {
-  assert.ok(process.env.ADMIN_TOKEN, 'set ADMIN_TOKEN so the smoke album can be deleted');
+  assert.ok(process.env.ADMIN_PASSWORD, 'set ADMIN_PASSWORD for production smoke checks');
   const site = 'https://anderdevv9120.github.io';
   const pre = await call('/api/albums', { method: 'OPTIONS', headers: { Origin: site } });
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get('access-control-allow-origin'), site);
 
-  token = await signup(`smoke-${Date.now()}`); // ponytail: the smoke account stays behind (no user delete endpoint)
+  token = ADMIN_TOKEN = await login();
   const created = await postAlbum({ title: 'Smoke test' });
   assert.equal(created.status, 201);
   const albumPath = `/api/albums/${(await created.json()).id}`;
@@ -54,7 +61,7 @@ if (process.argv.includes('--smoke')) {
     assert.equal(ranged.status, 206);
     assert.equal(ranged.headers.get('content-range'), `bytes 0-3/${png.length}`);
   } finally {
-    const del = await call(albumPath, { method: 'DELETE', headers: { Authorization: `Bearer ${process.env.ADMIN_TOKEN}` } });
+    const del = await call(albumPath, { method: 'DELETE', headers: { Authorization: `Bearer ${ADMIN_TOKEN}` } });
     assert.equal(del.status, 204, 'smoke album was not deleted — remove it by hand');
   }
   assert.equal((await call(albumPath)).status, 404);
@@ -64,16 +71,16 @@ if (process.argv.includes('--smoke')) {
 
 // ---- accounts ----
 {
-  const name = `alice${Date.now()}`;
-  token = await signup(name);
+  const name = ADMIN_USERNAME;
+  token = ADMIN_TOKEN = await login();
   assert.match(token, /^[0-9a-f]{64}$/);
 
-  assert.equal((await postJson('/api/signup', { username: name.toUpperCase(), password: 'secret1' })).status, 409, 'usernames are case-insensitive');
-  assert.equal((await postJson('/api/signup', { username: 'bob', password: '12345' })).status, 400);
-  assert.equal((await postJson('/api/signup', { username: '   ', password: 'secret1' })).status, 400);
-  assert.equal((await postJson('/api/signup', ['nope'])).status, 400);
+  assert.equal((await postJson('/api/signup', { username: name.toUpperCase(), password: 'secret1' })).status, 403);
+  assert.equal((await postJson('/api/signup', { username: 'bob', password: '12345' })).status, 403);
+  assert.equal((await postJson('/api/signup', { username: '   ', password: 'secret1' })).status, 403);
+  assert.equal((await postJson('/api/signup', ['nope'])).status, 403);
 
-  const ok = await postJson('/api/login', { username: name, password: 'secret1' });
+  const ok = await postJson('/api/login', { username: name.toUpperCase(), password: ADMIN_PASSWORD });
   assert.equal(ok.status, 200);
   const session = await ok.json();
   assert.equal(session.username, name);
@@ -99,7 +106,7 @@ if (process.argv.includes('--smoke')) {
   assert.equal(album.description, 'd');
   assert.equal(album.count, 0);
   assert.equal(album.cover, null);
-  assert.ok(album.owner.startsWith('alice'));
+  assert.equal(album.owner, ADMIN_USERNAME);
 
   const blank = await postAlbum({ title: '   ' });
   assert.equal(blank.status, 400);
@@ -157,7 +164,7 @@ if (process.argv.includes('--smoke')) {
   assert.equal((await (await call('/api/media?user=nobody-here')).json()).length, 0);
   assert.equal((await (await call(`/api/albums/${album.id}`)).json()).owner, album.owner);
 
-  const mallory = await signup(`mallory${Date.now()}`);
+  const mallory = await createUser(`mallory${Date.now()}`);
   assert.equal((await put(album.id, 'title=m', 'image/png', png, mallory)).status, 403, "can't upload into someone else's album");
   assert.equal((await put(album.id, 'title=m', 'image/png', png, null)).status, 401);
 

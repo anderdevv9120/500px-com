@@ -7,5 +7,6 @@ export function resolvePage(route, manifest, licensingQuests) {
   if (route.startsWith('/p/') || route.startsWith('/user/')) page ||= 'profile';
   if (route.startsWith('/blog/')) page = 'blog';
   if (['/login','/signup','/upload','/manager/works','/manager/licensing'].includes(route)) page = 'discover';
+  if (['/admin','/admin/users'].includes(route)) page = 'admin';
   return page;
 }

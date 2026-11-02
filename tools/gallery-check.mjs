@@ -18,6 +18,29 @@ try {
   };
   for(const mobile of [false,true]) {
     await page.setViewportSize({width:mobile?390:1440,height:900});
+    await visit('/discover');
+    const photoLink=page.locator('a[href^="/photo/"]').first();
+    const photoTitle=await photoLink.locator('img').getAttribute('alt');
+    await photoLink.click();
+    await page.waitForSelector('.local-lightbox img');
+    assert.equal(new URL(page.url()).pathname,'/discover','Photo clicks use the shared viewer without navigating');
+    assert.equal(await page.locator('.local-lightbox img').getAttribute('alt'),photoTitle);
+    const photoSrc=await page.locator('.local-lightbox img').getAttribute('src');
+    await page.getByRole('button',{name:'Next photo',exact:true}).click();
+    assert.notEqual(await page.locator('.local-lightbox img').getAttribute('src'),photoSrc);
+    await page.keyboard.press('Escape');
+    await page.evaluate(async origin=>{
+      const photo={src:origin+'/assets/0010-0.jpg',title:'Description check',author:'User'};
+      await lightbox(0,false,[{...photo,description:'User description <b>stays text</b>'},{...photo,description:''}]);
+    },origin);
+    const notice='All copyrights belong to the owners of Trust Web, may not be reproduced in any way!';
+    assert.equal(await page.locator('.lightbox-caption .photo-copyright').innerText(),notice);
+    assert.equal(await page.locator('.lightbox-caption .photo-description').innerText(),'User description <b>stays text</b>');
+    assert.equal(await page.locator('.lightbox-caption .photo-description b').count(),0);
+    await page.getByRole('button',{name:'Next photo',exact:true}).click();
+    assert.equal(await page.locator('.lightbox-caption .photo-copyright').innerText(),notice);
+    assert.equal(await page.locator('.lightbox-caption .photo-description').count(),0);
+    await page.keyboard.press('Escape');
     await visit('/p/MarcoGrassi');
     await page.getByRole('tab',{name:'Galleries(6)',exact:true}).click();
     await page.locator('.local-collection-card').first().click();

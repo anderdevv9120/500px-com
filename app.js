@@ -3,6 +3,7 @@ const pageName = document.body.dataset.page;
 const all = (selector, root = document) => [...root.querySelectorAll(selector)];
 const findText = (text, root = document) => all('button,[role="button"],[role="tab"],a', root).find(el => el.textContent.trim() === text);
 const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const copyrightNotice = 'All copyrights belong to the owners of Trust Web, may not be reproduced in any way!';
 const stateKey = '500px-local-demo';
 let state;
 try { state = JSON.parse(localStorage.getItem(stateKey)) || {}; } catch { state = {}; }
@@ -11,7 +12,17 @@ for (const key of ['likes','saved','following','categories']) if (!Array.isArray
 if (!state.comments || typeof state.comments !== 'object') state.comments = {};
 if (state.user && !state.user.token) delete state.user; // pre-account local demo session
 const saveState = () => { try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch { /* Browser storage may be unavailable; the current page still works. */ } };
-const catalogPromise = fetch('/catalog.json?v=quest-licensing-1').then(response => { if (!response.ok) throw Error('Photo catalog unavailable'); return response.json(); });
+const catalogPromise = fetch('/catalog.json?v=quest-licensing-1').then(async response => {
+  if (!response.ok) throw Error('Photo catalog unavailable');
+  const catalog = await response.json();
+  let overrides = [];
+  try { overrides = await api('api/photo-overrides', {signal:AbortSignal.timeout(5000)}); } catch { /* shortcut: API outages show the original snapshot; serve seeded photos through the Worker if offline deletion must persist. */ }
+  catalog.photos = catalog.photos.map(photo => {
+    const override = overrides.find(item => item.id === photo.href.split('/').pop());
+    return {...photo, ...override, originalAuthor:photo.author, author: override?.author || photo.author, description: override?.description ?? photo.description ?? ''};
+  });
+  return catalog;
+});
 let galleriesPromise;
 const galleries = () => galleriesPromise ||= fetch('/pages/galleries.json').then(response => { if (!response.ok) throw Error('Galleries unavailable'); return response.json(); });
 let galleryPhotos = [];
@@ -28,7 +39,7 @@ let gridSize = 'small';
 let leaderboardRequest = 0;
 const questParams = new URLSearchParams(location.search);
 
-// Deployed Worker everywhere; opt into `wrangler dev` with localStorage.uploadApi = 'http://127.0.0.1:8787'.
+// Use the deployed Worker/D1 everywhere; localStorage.uploadApi can explicitly override it.
 const uploadApi = (() => { try { return localStorage.uploadApi; } catch {} })() || 'https://500px-guest-uploads.lamdan0901.workers.dev';
 const uploadLimits = {'image/jpeg':20,'image/png':20,'image/webp':20,'image/gif':20,'image/avif':20,'video/mp4':95,'video/webm':95,'video/quicktime':95};
 const uploadDown = 'Uploads are unavailable right now';
@@ -128,7 +139,7 @@ function toast(message) {
   el.className = 'local-toast';
   el.setAttribute('role','status');
   el.textContent = message;
-  document.body.append(el);
+  (document.querySelector('dialog[open]') || document.body).append(el);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.remove(), 4000);
 }
@@ -215,8 +226,10 @@ function initializeHeaderMenus() {
     const items = all('[data-nav-item]',navigation);
     const path = location.pathname;
     const activeName = /^\/(?:$|discover$|popular$|fresh$|editors-picks$|upcoming$|leaderboard$)/.test(path) ? 'Inspiration' :
-      /^\/quests?(?:\/|$)/.test(path) ? 'Quests' : /^\/(?:licensing|grants)(?:\/|$)/.test(path) ? 'Licensing' : path === '/vivo_image' ? 'Vivo' : null;
+      /^\/quests?(?:\/|$)/.test(path) ? 'Quests' : /^\/(?:licensing|grants)(?:\/|$)/.test(path) ? 'Licensing' : path === '/vivo_image' ? 'Vivo' :
+      path === '/admin' ? 'Photos & videos' : path === '/admin/users' ? 'Users' : null;
     const active = items.find(item => item.dataset.navItem === activeName);
+    if (pageName === 'admin') active?.querySelector('a')?.setAttribute('aria-current','page');
     let hovered;
     const updateHighlight = () => {
       const item = hovered || items.find(item => item.querySelector('[aria-expanded="true"]')) || active;
@@ -286,49 +299,41 @@ function openDialog(content, className = '') {
 }
 
 // then: runs after a successful login (e.g. reopen the upload dialog that asked for it)
-async function login({signup = false, then} = {}) {
-  if (state.user) { showMenu(findText('My account') || document.querySelector('header button'),[{label:'My uploads',href:`/p/guest?user=${encodeURIComponent(state.user.name)}`},{label:'Upload photos',action:upload},{label:'Log out',action:async () => { await post('api/logout').catch(() => {}); signedOut(); location.reload(); }}]); return; }
+async function login({then} = {}) {
+  if (state.user) { showMenu(findText('My account') || document.querySelector('header button'),[{label:'My uploads',href:`/p/guest?user=${encodeURIComponent(state.user.name)}`},...(state.user.isAdmin?[{label:'Admin',href:'/admin'},{label:'Upload photos',action:upload}]:[]),{label:'Log out',action:async () => { await post('api/logout').catch(() => {}); signedOut(); location.reload(); }}]); return; }
   const response = await fetch('/pages/login-fragment.html');
   if (!response.ok) throw Error('Login view unavailable');
   loadFragmentStyles();
-  const dialog = openDialog(await response.text(),'local-auth');
+  const dialog = openDialog(await response.text(),'local-auth dark');
   dialog.querySelector('[aria-label="close"]').addEventListener('click',() => dialog.close());
   const form = dialog.querySelector('form');
   const notice = document.createElement('p');
   notice.className = 'auth-notice';
+  notice.setAttribute('role', 'status');
   dialog.querySelector('[role="dialog"]').append(notice);
   dialog.querySelectorAll('form').forEach(f => f.action = '#');
   const account = form.querySelector('input[name="account"]'), password = form.querySelector('input[type="password"]'), submit = form.querySelector('[type="submit"]');
   Object.assign(account, {placeholder:'Enter your username', maxLength:30});
   account.setAttribute('aria-label', 'Username');
   password.minLength = 6;
-  const toggle = document.createElement('button');
-  toggle.type = 'button'; toggle.className = 'auth-switch';
+  form.querySelector('input[type="checkbox"]')?.closest('.MuiStack-root').parentElement.remove();
+  findText('Forgot password?',dialog)?.closest('button').remove();
   // drop the captured "or" divider, social sign-in and PULSEpx buttons: only username/password is supported
   while (form.nextElementSibling && form.nextElementSibling !== notice) form.nextElementSibling.remove();
   findText('I have a PULSEpx account', dialog)?.remove();
-  form.after(toggle);
-  const setMode = on => {
-    signup = on;
-    submit.textContent = signup ? 'Sign up' : 'Log in';
-    toggle.textContent = signup ? 'Already have an account? Log in' : 'New to 500px? Sign up';
-    password.autocomplete = signup ? 'new-password' : 'current-password';
-    notice.textContent = signup ? 'Pick a username and a password of at least 6 characters.' : 'Log in with your username and password.';
-  };
-  setMode(signup);
-  toggle.addEventListener('click', () => setMode(!signup));
-  // both buttons stay disabled until the request settles, so neither a second submit nor a mode switch can race it
+  submit.textContent = 'Log in';
+  password.autocomplete = 'current-password';
   const busy = on => {
-    submit.disabled = toggle.disabled = on;
-    submit.textContent = on ? (signup ? 'Signing up…' : 'Logging in…') : (signup ? 'Sign up' : 'Log in');
+    submit.disabled = on;
+    submit.textContent = on ? 'Logging in…' : 'Log in';
   };
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!form.reportValidity() || submit.disabled) return;
     busy(true);
     try {
-      const {token, username} = await post(signup ? 'api/signup' : 'api/login', {username:account.value.trim(), password:password.value});
-      state.user = {name:username, token};
+      const {token, username, isAdmin} = await post('api/login', {username:account.value.trim(), password:password.value});
+      state.user = {name:username, token, isAdmin};
       saveState();
       dialog.close();
       refreshAccount();
@@ -338,11 +343,6 @@ async function login({signup = false, then} = {}) {
     finally { busy(false); }
   });
   password?.parentElement.querySelector('button')?.addEventListener('click',() => password.type = password.type === 'password' ? 'text' : 'password');
-  findText('Forgot password?',dialog)?.addEventListener('click', () => {
-    dialog.close();
-    const recovery = openDialog('<h2>Reset password</h2><p>Enter your email address to request a password reset.</p><form><label for="recovery-email">Email address</label><input id="recovery-email" type="email" required autocomplete="email"><button class="primary" type="submit">Send reset link</button></form>');
-    recovery.querySelector('form').addEventListener('submit',event => { event.preventDefault(); if (event.target.reportValidity()) { recovery.close(); toast('Demo request complete. No email was sent.'); } });
-  });
 }
 
 function loadFragmentStyles() {
@@ -416,15 +416,16 @@ function layoutGrids() {
 }
 
 function photoGrid(photos) {
-  return `<div class="local-grid">${photos.map(p => `<a href="${escapeHTML(p.href)}"><img src="${escapeHTML(p.src)}" alt="${escapeHTML(p.title)}" loading="lazy"><p>${escapeHTML(p.title)}</p><small>${escapeHTML(p.author)}</small></a>`).join('')}</div>`;
+  return `<div class="local-grid">${photos.filter(p=>!p.deleted).map(p => `<a href="${escapeHTML(p.href)}"><img src="${escapeHTML(p.src)}" alt="${escapeHTML(p.title)}" loading="lazy"><p>${escapeHTML(p.title)}</p><small>${escapeHTML(p.author)}</small></a>`).join('')}</div>`;
 }
 
 async function lightbox(index = 0, automatic = false, photos) {
-  activePhotos = photos || (await catalogPromise).photos;
+  const catalog = await catalogPromise;
+  activePhotos = (photos || catalog.photos).map(photo=>({...photo,...catalog.photos.find(item=>item.href===photo.href || item.src===photo.src)})).filter(photo => !photo.deleted);
   if (!activePhotos.length) return;
   photoIndex = (index + activePhotos.length) % activePhotos.length;
-  const dialog = openDialog(`${deleteButton('', 'Delete')}<img alt=""><div class="lightbox-caption"><button type="button" data-slide="previous" aria-label="Previous photo">←</button><span></span><button type="button" data-slide="next" aria-label="Next photo">→</button></div>`,'local-lightbox');
-  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); dialog.querySelector('.lightbox-caption span').textContent = `${photo.title} · ${photo.author}`; const del = dialog.querySelector('[data-delete-media]'); del.hidden = !isMine(photo); del.dataset.deleteMedia = photo.id || ''; del.setAttribute('aria-label', `Delete ${photo.title}`); };
+  const dialog = openDialog(`${deleteButton('', 'Delete')}<img alt=""><div class="lightbox-caption"><span></span></div><button type="button" data-slide="previous" aria-label="Previous photo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button type="button" data-slide="next" aria-label="Next photo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>`,'local-lightbox');
+  const update = () => { const photo = activePhotos[photoIndex]; const video = photo.kind === 'video'; const media = document.createElement(video ? 'video' : 'img'); media.src = photo.src; if (video) { media.controls = true; media.playsInline = true; } else media.alt = photo.title; dialog.querySelector('img,video').replaceWith(media); dialog.querySelector('.lightbox-caption').innerHTML = `<span><p class="photo-copyright">${copyrightNotice}</p><strong>${escapeHTML(photo.title)}</strong>${photo.description?`<p class="photo-description">${escapeHTML(photo.description)}</p>`:''}<small>${escapeHTML(photo.author)}</small></span>${photo.createdAt?`<time datetime="${new Date(photo.createdAt).toISOString()}">${escapeHTML(new Date(photo.createdAt).toLocaleString())}</time>`:''}`; const del = dialog.querySelector('[data-delete-media]'); del.hidden = !isMine(photo); del.dataset.deleteMedia = photo.id || ''; del.setAttribute('aria-label', `Delete ${photo.title}`); };
   const move = step => { photoIndex = (photoIndex + step + activePhotos.length) % activePhotos.length; update(); };
   dialog.querySelector('[data-slide="previous"]').addEventListener('click',() => move(-1));
   dialog.querySelector('[data-slide="next"]').addEventListener('click',() => move(1));
@@ -504,11 +505,16 @@ function pickCover(src, current = 0) {
 
 async function upload() {
   if (!state.user) return login({then: upload});
+  try {
+    const user = await api('api/me', {headers:authHeader()});
+    if (!user.isAdmin) { toast('Only the main admin can upload.'); return; }
+    state.user.isAdmin = true; saveState();
+  } catch (error) { toast(error.message); return; }
   const dialog = openDialog('<h2>Upload photos &amp; videos</h2><p>Photos up to 20 MB · Videos up to 95 MB (temporary limit)</p><form><input id="upload-file" class="upload-input" type="file" accept="image/*,video/*" multiple><label for="upload-file" class="upload-pick">Choose files</label><p class="upload-summary" hidden><span></span><button type="button" class="upload-clear">Clear all</button></p><ul class="upload-files"></ul><fieldset class="upload-mode"><label><input type="radio" name="album-mode" value="new" checked> New album</label><label><input type="radio" name="album-mode" value="existing"> Existing album</label></fieldset><div data-mode="new"><label for="upload-album-title">Album title</label><input id="upload-album-title" maxlength="60" required placeholder="Give your album a title"><label for="upload-album-description">Description (optional)</label><textarea id="upload-album-description" maxlength="280" rows="2"></textarea></div><div data-mode="existing" hidden><label for="upload-album">Album</label><select id="upload-album"></select></div><button type="submit" class="primary">Upload</button><p class="upload-msg" role="status"></p></form>');
   const form = dialog.querySelector('form'), list = dialog.querySelector('.upload-files'), msg = dialog.querySelector('.upload-msg'), submit = dialog.querySelector('[type="submit"]');
   const [newPane, existingPane] = all('[data-mode]', dialog), select = dialog.querySelector('#upload-album'), existingRadio = dialog.querySelector('[value="existing"]'), titleInput = dialog.querySelector('#upload-album-title');
   const picker = dialog.querySelector('#upload-file'), summary = dialog.querySelector('.upload-summary'), clear = dialog.querySelector('.upload-clear');
-  let items = [], blocked = false;
+  let items = [], blocked = false, uploadedAny = false;
   const say = (text, bad) => { msg.textContent = text; msg.classList.toggle('bad', Boolean(bad)); };
   const setStatus = (item, text, bad) => { Object.assign(item, {text, bad}); item.status.textContent = text; item.row.classList.toggle('bad', Boolean(bad)); };
   const icon = name => `<span class="upload-thumb-icon">${escapeHTML((name.match(/\.([^.]+)$/)?.[1] || 'file').slice(0, 4).toUpperCase())}</span>`;
@@ -516,7 +522,7 @@ async function upload() {
     : item.file.type.startsWith('video/') ? `<video class="upload-thumb" src="${item.url}" muted preload="metadata" playsinline></video><span class="upload-play" aria-hidden="true">▶</span>`
     : `<img class="upload-thumb" src="${item.url}" alt="">`;
   const size = bytes => bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
-  const lock = on => { picker.disabled = clear.disabled = on; all('.upload-remove, .upload-cover-edit', list).forEach(control => { control.disabled = on; }); };
+  const lock = on => { picker.disabled = clear.disabled = on; all('.upload-remove, .upload-cover-edit', list).forEach(control => { control.disabled = on; }); all('input:not([type="file"]),select,textarea',form).forEach(control=>{control.disabled=on;}); if(!on)existingRadio.disabled=!select.options.length; };
   const coverButton = item => `<button type="button" class="upload-preview upload-cover-edit" aria-label="Choose thumbnail for ${escapeHTML(item.file.name)}">${preview(item)}<span class="upload-cover-overlay" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span></button>`;
   const drop = gone => gone.forEach(item => item.url && URL.revokeObjectURL(item.url));
   const render = () => {
@@ -541,12 +547,21 @@ async function upload() {
     if (time !== null) { item.poster = time; item.row.querySelector('video').currentTime = time; }
   });
   clear.addEventListener('click', () => { drop(items); items = []; render(); });
-  dialog.addEventListener('close', () => drop(items));
+  dialog.addEventListener('close', () => { drop(items); if(uploadedAny&&pageName==='admin')location.reload(); });
   all('[name="album-mode"]', dialog).forEach(radio => radio.addEventListener('change', () => { const existing = existingRadio.checked; newPane.hidden = existing; existingPane.hidden = !existing; titleInput.required = !existing; }));
-  api(`api/albums?user=${encodeURIComponent(state.user.name)}`).then(albums => {
+  api('api/albums').then(albums => {
     select.innerHTML = albums.map(album => `<option value="${escapeHTML(album.id)}">${escapeHTML(album.title)} (${album.count})</option>`).join('');
     existingRadio.disabled = !albums.length;
   }, error => { blocked = true; submit.disabled = true; existingRadio.disabled = true; say(error.message, true); });
+  const ownerSelect = document.createElement('select');
+  ownerSelect.id = 'upload-owner';
+  const ownerLabel = document.createElement('label'); ownerLabel.htmlFor = ownerSelect.id; ownerLabel.textContent = 'Post as user';
+  newPane.prepend(ownerLabel, ownerSelect);
+  submit.disabled = true;
+  api('api/admin/users', {headers:authHeader()}).then(users => {
+    ownerSelect.innerHTML = users.map(user=>`<option value="${escapeHTML(user.id)}" ${user.username===state.user?.name?'selected':''}>${escapeHTML(user.username)}</option>`).join('');
+    submit.disabled = blocked;
+  }, error => { blocked = true; submit.disabled = true; say(error.message, true); });
   // each pick appends; the same name + size again is treated as the same file
   picker.addEventListener('change', () => {
     for (const file of picker.files) {
@@ -562,6 +577,7 @@ async function upload() {
     event.preventDefault();
     if (submit.disabled) return;
     if (!form.reportValidity()) return;
+    if (!ownerSelect.options.length) { say('Wait for the user list to load.', true); return; }
     const pending = items, valid = pending.filter(item => !item.error);
     if (!valid.length) { say('Choose at least one supported photo or video.', true); return; }
     submit.disabled = true; say(''); lock(true);
@@ -577,7 +593,7 @@ async function upload() {
     if (!ready.length) { say(`0 uploaded, ${pending.length} failed`, true); submit.disabled = blocked; lock(false); return; }
     let albumId = select.value;
     try {
-      if (!existingRadio.checked) albumId = (await post('api/albums', {title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim()})).id;
+      if (!existingRadio.checked) albumId = (await post('api/albums', {title:titleInput.value.trim(), description:dialog.querySelector('#upload-album-description').value.trim(), ownerId:ownerSelect.value})).id;
     } catch (error) { say(error.message, true); submit.disabled = blocked; lock(false); return; }
     let uploaded = 0, next = 0;
     // 3 workers pull from a shared queue, so at most 3 uploads are in flight
@@ -597,6 +613,8 @@ async function upload() {
     drop(items.filter(item => item.done)); items = items.filter(item => !item.done);
     render(); lock(false); submit.disabled = blocked;
     if (uploaded) {
+      uploadedAny = true;
+      toast(`${uploaded} photo${uploaded === 1 ? '' : 's'}/video${uploaded === 1 ? '' : 's'} uploaded successfully.${uploaded < pending.length ? ` ${pending.length - uploaded} failed; retry the remaining files.` : ''}`);
       if (!existingRadio.checked && ![...select.options].some(option => option.value === albumId)) select.insertAdjacentHTML('afterbegin', `<option value="${escapeHTML(albumId)}">${escapeHTML(titleInput.value.trim())}</option>`);
       existingRadio.disabled = false;
       if (uploaded === pending.length) form.reset();
@@ -611,11 +629,91 @@ async function upload() {
 
 async function questSubmission() {
   if (!state.user) return login();
-  const photos = (await catalogPromise).photos.slice(0,9);
+  const photos = (await catalogPromise).photos.filter(photo=>!photo.deleted).slice(0,9);
   const dialog = openDialog(`<h2>Submit to this Quest</h2><p>Select a photo from your collection.</p><div class="local-selection">${photos.map((p,i) => `<button type="button" aria-label="Select ${escapeHTML(p.title)}" aria-pressed="false" data-select="${i}"><img src="${escapeHTML(p.src)}" alt="${escapeHTML(p.title)}"></button>`).join('')}</div><button class="primary" style="width:100%" data-submit-entry>Submit photo</button>`);
   let selected;
   all('[data-select]',dialog).forEach(button => button.addEventListener('click',() => { selected = button.dataset.select; all('[data-select]',dialog).forEach(b => b.setAttribute('aria-pressed',String(b===button))); }));
   dialog.querySelector('[data-submit-entry]').addEventListener('click',() => { if(selected===undefined) {toast('Select a photo first.');return;} dialog.close(); toast('Your entry has been added to the local demo.'); });
+}
+
+async function renderAdmin() {
+  const main = document.querySelector('main') || document.querySelector('[data-masonry-host]')?.parentElement;
+  if (!main) throw Error('Admin view unavailable');
+  main.className = 'admin-page';
+  main.innerHTML = '<div class="admin-loading" role="status" aria-label="Loading"></div>';
+  document.title = 'Administration | Trust Web';
+  if (!state.user) {
+    main.innerHTML = '<h1>Administration</h1><p>Log in with the main admin account.</p><button type="button" class="local-primary" data-admin-login>Log in</button>';
+    main.querySelector('button').addEventListener('click', () => login({then:renderAdmin}).catch(error => toast(error.message)));
+    await login({then:renderAdmin});
+    return;
+  }
+  try {
+    const me = await api('api/me', {headers:authHeader()});
+    state.user.isAdmin = me.isAdmin; state.user.name = me.username; saveState();
+    if (!me.isAdmin) { main.innerHTML = '<h1>Access denied</h1><p>Only the main admin can manage photos and users.</p>'; return; }
+    const [users, media, catalog] = await Promise.all([api('api/admin/users', {headers:authHeader()}), api('api/admin/media', {headers:authHeader()}), catalogPromise]);
+    const usersView = location.pathname === '/admin/users';
+    main.innerHTML = `<div class="admin-toolbar"><h1>${usersView?'Users':'Photos &amp; videos'}</h1><div class="admin-toolbar-actions">${usersView?'<button type="button" class="local-primary" data-add-user>Add user</button>':''}<button type="button" data-admin-upload>Upload photos &amp; videos</button></div></div><p role="status" class="admin-status"></p><div class="admin-content"></div>`;
+    const content = main.querySelector('.admin-content');
+    main.querySelector('[data-admin-upload]').addEventListener('click', () => upload().catch(error => toast(error.message)));
+    const mutate = async (path, method, body) => {
+      await api(path, {method, headers:{'Content-Type':'application/json', ...authHeader()}, ...(body && {body:JSON.stringify(body)})});
+      location.reload();
+    };
+    if (usersView) {
+      content.innerHTML = `<div class="admin-users" tabindex="0" role="region" aria-label="Users table"><table><thead><tr><th scope="col">Username</th><th scope="col">Role</th><th scope="col">Actions</th></tr></thead><tbody>${users.map(user=>`<tr data-user-id="${escapeHTML(user.id)}"><th scope="row">${escapeHTML(user.username)}</th><td>${user.isAdmin?'Main admin':'User'}</td><td><div class="admin-user-actions">${user.isAdmin?'':'<button type="button" data-edit-user>Edit</button><button type="button" data-remove-user>Delete</button>'}<button type="button" data-view-user>Albums &amp; media</button></div></td></tr>`).join('')}</tbody></table></div>`;
+      const editUser = user => {
+        const dialog = openDialog(`<h2>${user?'Edit':'Add'} user</h2><form><label for="admin-username">Username</label><input id="admin-username" maxlength="30" required value="${escapeHTML(user?.username || '')}" autocomplete="off"><label for="admin-password">${user?'New password (leave blank to keep)':'Password'}</label><input id="admin-password" type="password" minlength="6" maxlength="200" ${user?'':'required'} autocomplete="new-password"><button type="submit" class="primary">Save user</button><p role="status"></p></form>`);
+        dialog.querySelector('form').addEventListener('submit', async event => {
+          event.preventDefault(); const button = dialog.querySelector('[type="submit"]'); button.disabled = true;
+          try { await mutate(user?`api/admin/users/${encodeURIComponent(user.id)}`:'api/admin/users', user?'PUT':'POST', {username:dialog.querySelector('#admin-username').value, password:dialog.querySelector('#admin-password').value}); }
+          catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; button.disabled = false; }
+        });
+      };
+      main.querySelector('[data-add-user]').addEventListener('click', () => editUser());
+      content.addEventListener('click', async event => {
+        const row = event.target.closest('[data-user-id]'); if (!row) return;
+        const user = users.find(item => item.id === row.dataset.userId);
+        if (event.target.closest('[data-view-user]')) location.href = `/p/guest?user=${encodeURIComponent(user.username)}&view=galleries`;
+        if (event.target.closest('[data-edit-user]')) editUser(user);
+        const remove = event.target.closest('[data-remove-user]');
+        if (remove && !remove.disabled) {
+          remove.disabled = true;
+          try {
+            const path = `api/admin/users/${encodeURIComponent(user.id)}`;
+            const {mediaCount} = await api(path, {headers:authHeader()});
+            const message = mediaCount ? `Delete user ${user.username}? This will permanently delete all of their albums and ${mediaCount} media item(s), including photos and videos. This cannot be undone.` : `Delete user ${user.username}? Their empty albums will also be deleted.`;
+            if (confirm(message)) await mutate(path, 'DELETE', {deleteMedia:mediaCount > 0});
+          } catch (error) { main.querySelector('.admin-status').textContent = error.message; }
+          finally { remove.disabled = false; }
+        }
+      });
+    } else {
+      const photos = [...media.map(item=>({...item,src:item.url})), ...catalog.photos.filter(item=>!item.deleted).map(item=>({...item,seeded:true,id:item.href.split('/').pop()}))];
+      content.innerHTML = `<label for="admin-search">Find photos or videos</label><input id="admin-search" type="search" placeholder="Title or owner"><div class="admin-photos">${photos.map((photo,index)=>`<article data-admin-photo="${index}"><button type="button" class="admin-preview" data-admin-preview aria-label="View ${escapeHTML(photo.title)}">${photo.kind==='video'?`<video src="${escapeHTML(posterSrc(photo.src,photo.posterTime))}" preload="metadata" muted playsinline></video>${videoPlayBadge}`:`<img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy">`}</button><div><strong>${escapeHTML(photo.title)}</strong><p>${escapeHTML(photo.author)}</p><button type="button" data-edit-photo>Edit</button><button type="button" data-remove-photo>Delete</button></div></article>`).join('')}</div>`;
+      content.querySelector('#admin-search').addEventListener('input', event => all('[data-admin-photo]',content).forEach(row=>{const photo=photos[Number(row.dataset.adminPhoto)];row.hidden=!`${photo.title} ${photo.author}`.toLowerCase().includes(event.target.value.toLowerCase());}));
+      content.addEventListener('click', async event => {
+        const row = event.target.closest('[data-admin-photo]'); if (!row) return;
+        if (event.target.closest('[data-admin-preview]')) { await lightbox(Number(row.dataset.adminPhoto), false, photos).catch(error=>toast(error.message)); return; }
+        const photo = photos[Number(row.dataset.adminPhoto)], path = `api/admin/${photo.seeded?'seeded':'media'}/${encodeURIComponent(photo.id)}`;
+        if (event.target.closest('[data-remove-photo]') && confirm(`Delete “${photo.title}”?`)) {
+          event.target.disabled = true;
+          try { await mutate(path, 'DELETE'); } catch (error) { main.querySelector('.admin-status').textContent = error.message; event.target.disabled = false; }
+        }
+        if (!event.target.closest('[data-edit-photo]')) return;
+        const date = photo.createdAt != null ? new Date(photo.createdAt) : null;
+        const localDate = date ? new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) : '';
+        const dialog = openDialog(`<h2>Edit ${photo.kind==='video'?'video':'photo'}</h2><form><label for="admin-title">Title</label><input id="admin-title" maxlength="100" required value="${escapeHTML(photo.title)}"><label for="admin-description">Description</label><textarea id="admin-description" maxlength="280" rows="4">${escapeHTML(photo.description || '')}</textarea><label for="admin-date">Posting date</label><input id="admin-date" type="datetime-local" step="60" required value="${localDate}"><label for="admin-owner">Owner</label><select id="admin-owner">${photo.seeded?`<option value="">Original credit: ${escapeHTML(photo.author)}</option>`:''}${users.map(user=>`<option value="${escapeHTML(user.id)}" ${user.id===photo.ownerId?'selected':''}>${escapeHTML(user.username)}</option>`).join('')}</select><button type="submit" class="primary">Save changes</button><p role="status"></p></form>`);
+        dialog.querySelector('form').addEventListener('submit', async submitEvent => {
+          submitEvent.preventDefault(); const button = dialog.querySelector('[type="submit"]'); button.disabled = true;
+          try { await mutate(path,'PUT',{title:dialog.querySelector('#admin-title').value,description:dialog.querySelector('#admin-description').value,createdAt:new Date(dialog.querySelector('#admin-date').value).getTime(),ownerId:dialog.querySelector('#admin-owner').value || null}); }
+          catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; button.disabled = false; }
+        });
+      });
+    }
+    refreshAccount();
+  } catch (error) { main.innerHTML = `<h1>Administration</h1><p role="alert">${escapeHTML(error.message)}</p><a href="/admin">Retry / log in</a>`; }
 }
 
 function filterQuests(type) {
@@ -737,12 +835,12 @@ async function renderLicensingQuest() {
 const posterSrc = (src, t) => t ? `${src}#t=${t}` : src;
 const videoPlayBadge = '<span class="gallery-play-badge" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 3v18l15-9z"/></svg></span>';
 // guest uploads carry an id; seeded photos never do, so a username matching a seeded author can't claim them
-const isMine = item => Boolean(item.id && state.user && item.author === state.user.name);
+const isMine = item => Boolean(item.id && !item.href && state.user?.isAdmin);
 const trashIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>';
 const deleteButton = (id, label, attr = 'data-delete-media') => `<button type="button" class="local-delete" ${attr}="${escapeHTML(id)}" aria-label="${escapeHTML(label)}">${trashIcon}</button>`;
 function mediaFigure(item, index, {lightbox}) {
   const title = escapeHTML(item.title), media = item.kind === 'video' ? `<video src="${escapeHTML(posterSrc(item.src, item.poster))}" preload="metadata" muted playsinline></video>${videoPlayBadge}` : `<img src="${escapeHTML(item.src)}" alt="${title}" ${index>5?'loading="lazy"':''}>`;
-  return `<figure class="gallery-photo">${isMine(item)?deleteButton(item.id,`Delete ${item.title}`):''}${lightbox?`<button data-gallery-photo="${index}" aria-label="View ${title}">${media}</button>`:`<a data-gallery-photo="${index}" href="${escapeHTML(item.href)}">${media}</a>`}<figcaption>${lightbox?'':`<strong>${title}</strong>`}${escapeHTML(item.author)}</figcaption></figure>`;
+  return `<figure class="gallery-photo">${isMine(item)?deleteButton(item.id,`Delete ${item.title}`):''}${lightbox?`<button data-gallery-photo="${index}" aria-label="View ${title}">${media}</button>`:`<a data-gallery-photo="${index}" href="${escapeHTML(item.href)}">${media}</a>`}<figcaption><p class="photo-copyright">${copyrightNotice}</p><strong>${title}</strong>${escapeHTML(item.author)}${item.createdAt?`<time datetime="${new Date(item.createdAt).toISOString()}">${escapeHTML(new Date(item.createdAt).toLocaleString())}</time>`:''}</figcaption></figure>`;
 }
 
 async function renderGallery() {
@@ -759,7 +857,7 @@ async function renderGallery() {
     // Seeded galleries never touch the Worker; only this branch does.
     try{
       const album=query.get('album')?await api(`api/albums/${encodeURIComponent(query.get('album'))}`):null;
-      if(album?.media.length)gallery={title:album.title,description:album.description,owner:album.owner,photos:album.media.map(m=>({id:m.id,src:m.url,title:m.title,author:m.author,kind:m.kind,poster:m.posterTime}))};
+      if(album?.media.length)gallery={title:album.title,description:album.description,owner:album.owner,photos:album.media.map(m=>({...m,src:m.url,poster:m.posterTime}))};
     }catch(error){
       if(error.status!==404){notFound('Guest uploads are unavailable right now.');return;}
     }
@@ -769,6 +867,10 @@ async function renderGallery() {
     gallery=isGrant?data.grants.find(g=>g.id===id):profile?.galleries.find(g=>g.id===id);
   }
   if(!gallery){notFound('This gallery is not available in the local collection.');return;}
+  if (!isGuest) {
+    const catalog = await catalogPromise;
+    gallery = {...gallery,photos:gallery.photos.map(photo=>({...photo,...catalog.photos.find(item=>item.href===photo.href || item.src===photo.src)})).filter(photo=>!photo.deleted)};
+  }
   document.title=`${gallery.title} | 500px`;
   galleryPhotos=gallery.photos;
   const userPage=isGuest&&`/p/guest?user=${encodeURIComponent(gallery.owner)}`;
@@ -840,8 +942,12 @@ async function handleTab(button) {
       try{
         const only=profileUser?`user=${encodeURIComponent(profileUser)}`:'';
         const list=await api(works?`api/media?limit=200&${only}`:`api/albums?${only}`);
-        if(works)galleryPhotos=list.map(m=>({id:m.id,src:m.url,title:m.title,author:m.author,kind:m.kind,poster:m.posterTime}));
-        panel.innerHTML=!list.length?'<p>No uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<div class="local-album">${state.user&&album.owner===state.user.name?deleteButton(album.id,`Delete album ${album.title}`,'data-delete-album'):''}<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(posterSrc(album.cover.url,album.cover.posterTime))}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a></div>`).join('')}</div>`);
+        if(works) {
+          galleryPhotos=list.map(m=>({...m,src:m.url,poster:m.posterTime}));
+          const transferred=(await catalogPromise).photos.filter(photo=>photo.ownerId&&!photo.deleted&&(!profileUser||photo.author===profileUser));
+          galleryPhotos.push(...transferred); list.push(...transferred);
+        }
+        panel.innerHTML=!list.length?'<p>No uploads yet.</p><button class="local-primary" type="button">Upload</button>':(works?`<div class="gallery-photos guest-wide">${galleryPhotos.map((photo,index)=>mediaFigure(photo,index,{lightbox:true})).join('')}</div>`:`<div class="local-grid guest-wide">${list.map(album=>`<div class="local-album">${state.user?.isAdmin?deleteButton(album.id,`Delete album ${album.title}`,'data-delete-album'):''}<a href="/galleries/guest?album=${encodeURIComponent(album.id)}" class="local-collection-card">${album.cover.kind==='video'?`<div class="gallery-media"><video src="${escapeHTML(posterSrc(album.cover.url,album.cover.posterTime))}" preload="metadata" muted playsinline></video>${videoPlayBadge}</div>`:`<img src="${escapeHTML(album.cover.url)}" alt="">`}<span>${escapeHTML(album.title)}</span></a></div>`).join('')}</div>`);
         if(works)layoutGrids();
         if(!list.length)panel.querySelector('button').addEventListener('click',()=>upload());
       }catch{panel.innerHTML='<p>Guest uploads are unavailable right now.</p>';}
@@ -866,12 +972,14 @@ async function removeUpload(button) {
   // the Worker drops an album with its last item, so leave the album page instead of showing "not found"
   if(pageName==='gallery'&&galleryPhotos.length===1){location.href=document.querySelector('[data-gallery-back]').href;return;}
   if(pageName==='gallery')await renderGallery();
+  else if(pageName==='admin')await renderAdmin();
   else await handleTab(document.querySelector('[role="tab"][aria-selected="true"]'));
 }
 
 async function handleClick(event) {
   const target=event.target instanceof Element?event.target:null;
   if(!target)return;
+  if(target.closest('.admin-page'))return;
   const galleryAction=target.closest('[data-gallery-action]');
   if(galleryAction){
     if(galleryAction.dataset.galleryAction==='share')await share(location.href,'Share this gallery');
@@ -925,8 +1033,8 @@ async function handleClick(event) {
   if(target.closest('header')&&['Photos','Users','Galleries','Quests'].includes(text)){
     showMenu(button,['Photos','Users','Galleries','Quests'].map(type=>({label:type,action:()=>{button.childNodes[0].textContent=type;button.dataset.searchType=type.toLowerCase();}})));return;
   }
-  if(target.closest('.local-auth'))return; // its own Log in / Sign up buttons are handled by login()
-  if(['Log in','Sign up','Get started','My account','Log in to comment','Try free for 30 days'].includes(text)||target.closest('.single-line')?.textContent.trim()==='Log in to comment') {event.preventDefault();await login({signup:text==='Sign up'});return;}
+  if(target.closest('.local-auth'))return;
+  if(['Log in','Get started','My account','Log in to comment','Try free for 30 days'].includes(text)||target.closest('.single-line')?.textContent.trim()==='Log in to comment') {event.preventDefault();await login();return;}
   if(['Get Started','Join the Program','Apply Now','Apply now','Join now'].includes(text)){event.preventDefault();await login();return;}
   if(track==='onboarding_skip'){
     state.exploring=true;saveState();location.assign('/discover');return;
@@ -963,19 +1071,26 @@ async function handleClick(event) {
     const key=button.dataset.followOwner||location.pathname;const following=toggleStored('following',key,button,'local-active');button.textContent=following?'Following':'Follow';return;
   }
   if(label==='Repost'||track==='repost_btn'){event.preventDefault();if(!state.user)await login();else toast('Reposted to your local profile.');return;}
-  if(track==='creator_avatar'&&!target.closest('a')){const author=target.closest('[data-track-id="creator_avatar"]')?.textContent||'';location.assign(author.includes('Paweł')?'/p/paweluchorczak':'/p/MarcoGrassi');return;}
+  if(track==='creator_avatar'&&!target.closest('a')){const creator=target.closest('[data-track-id="creator_avatar"]');const author=creator?.textContent||'';location.assign(creator?.dataset.ownerHref||(author.includes('Paweł')?'/p/paweluchorczak':'/p/MarcoGrassi'));return;}
   if(track==='comment_reply'||text==='Reply'){if(!state.user)await login();else document.querySelector('.local-comment-form input')?.focus();return;}
   if(text==='Like'){button.classList.toggle('local-liked');return;}
   if(button?.getAttribute('role')==='tab'){await handleTab(button);return;}
   const questFilter=target.closest('[data-quest-filter]');if(questFilter){filterQuests(questFilter.dataset.questFilter);return;}
   if(target.closest('[data-quest-sort-trigger]')){await questFilters();return;}
-  if(pageName==='quests'&&label==='Sign up'){await login({signup:true});return;}
   if(pageName.startsWith('quest-')&&['Submit','Join Now','Vote'].includes(text)){await questSubmission();return;}
   if(pageName==='quests'&&['Submit','Vote'].includes(text)){await questSubmission();return;}
   if(text==='Filters'&&pageName==='search'){searchFilters();return;}
   if(text==='Relevance'&&pageName==='search'){showMenu(button,[{label:'Relevance',action:()=>sortSearch(false)},{label:'Most liked',action:()=>sortSearch(true)},{label:'Newest',action:()=>sortSearch(true)}]);return;}
   if(text==='View Cover'){const photos=(await catalogPromise).photos;await lightbox(0,false,photos);return;}
   if(text==='More'&&pageName.startsWith('profile')){const p=all('p').find(e=>e.textContent.includes('Marco Grassi is'));if(p){p.style.maxHeight='none';p.style.webkitLineClamp='unset';button.hidden=true;}return;}
+  const photoLink=target.closest('a[href^="/photo/"]');
+  if(photoLink && event.button===0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && (!photoLink.target || photoLink.target==='_self') && !photoLink.hasAttribute('download')){
+    event.preventDefault();
+    const photos=(photoLink.hasAttribute('data-gallery-photo')?galleryPhotos:(await catalogPromise).photos).filter(photo=>!photo.deleted);
+    const index=photos.findIndex(photo=>photo.href===photoLink.getAttribute('href'));
+    if(index<0){location.assign(photoLink.href);return;}
+    await lightbox(index,false,photos);return;
+  }
   if(pageName.startsWith('photo-')&&target.tagName==='IMG'&&target.alt&&target.getBoundingClientRect().width>300){const photos=(await catalogPromise).photos;const photo=photos.find(p=>p.href===location.pathname)||{src:target.src,title:target.alt,author:all('[data-track-id="creator_avatar"]')[0]?.textContent||''};await lightbox(0,false,[photo]);return;}
   if(text==='Customer Support'||label==='Open customer service'){openDialog('<h2>How can we help?</h2><p>Explore the Licensing guides for submission requirements, releases, and distribution.</p><a class="local-primary" href="/licensing">Visit Licensing guides</a>');}
 }
@@ -994,6 +1109,12 @@ function sortSearch(reverse) {
 }
 
 async function initialize() {
+  if (location.pathname === '/signup') { location.replace('/login'); return; }
+  all('a,button,[role="button"]').filter(element=>element.getAttribute('href')==='/signup'||element.textContent.trim()==='Sign up'||element.getAttribute('aria-label')==='Sign up').forEach(element=>{element.hidden=true;});
+  if (pageName === 'admin') { refreshAccount(); initializeHeaderMenus(); await renderAdmin(); return; }
+  if (state.user) {
+    try { const user=await api('api/me',{headers:authHeader()}); Object.assign(state.user,{name:user.username,isAdmin:user.isAdmin}); saveState(); } catch { /* Public pages still render when the API is unavailable. */ }
+  }
   if(isGuestProfile || pageName==='gallery') {
     window.addEventListener('resize',layoutGrids);
     document.addEventListener('load',event=>{if(event.target.matches('.gallery-photos.guest-wide img'))layoutGrids();},true);
@@ -1039,6 +1160,17 @@ async function initialize() {
     input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();const query=input.value.trim();if(query){const type=input.closest('header').querySelector('[data-search-type]')?.dataset.searchType||'photos';location.assign(`/search?q=${encodeURIComponent(query)}&type=${type}`);}}});
   });
   all('[data-photo-card]').forEach(card=>{const key=card.dataset.photoCard;if(state.likes.includes(key))card.querySelector('[data-like]')?.classList.add('local-liked');if(state.saved.includes(key))card.querySelector('[aria-label="collect"]')?.classList.add('local-saved');});
+  const catalog = await catalogPromise;
+  all('img[src]').forEach(image=>{if(catalog.photos.some(photo=>photo.deleted&&photo.src===image.getAttribute('src')))image.hidden=true;});
+  all('[data-photo-card]').forEach(card=>{
+    const photo=catalog.photos.find(item=>item.href===card.dataset.photoCard); if(!photo)return;
+    if(photo.deleted||(pageName.startsWith('profile')&&!isGuestProfile&&photo.ownerId&&photo.author!==photo.originalAuthor)){card.closest('[data-masonry-item]')?.remove();card.remove();return;}
+    const image=card.querySelector('img');if(image)image.alt=photo.title;
+    const link=card.querySelector('a[aria-label^="View "]');if(link)link.setAttribute('aria-label',`View ${photo.title}`);
+    const author=card.querySelector('[data-track-id="creator_avatar"] span');if(author)author.textContent=photo.author;
+    if(photo.ownerId)card.querySelector('[data-track-id="creator_avatar"]')?.setAttribute('data-owner-href',`/p/guest?user=${encodeURIComponent(photo.author)}&view=works`);
+  });
+  layoutGrids();
   if(pageName==='welcome'){
     if(state.exploring){location.replace('/discover');return;}
     all('.photo-container[role="button"]').forEach(card=>{const name=card.querySelector(':scope > span:last-child')?.textContent.trim();if(state.categories.includes(name))card.setAttribute('aria-pressed','true');});
@@ -1047,11 +1179,14 @@ async function initialize() {
   if(state.following.includes(location.pathname)){const button=findText('Follow');if(button)button.textContent='Following';}
   if(pageName.startsWith('photo-')){
     const photo=(await catalogPromise).photos.find(p=>p.href===location.pathname);
-    if(photo&&!['/photo/SDjF7aAGorn','/photo/GXnqPeEIsfv'].includes(location.pathname)){
+    if (photo?.deleted) { document.body.innerHTML='<main class="admin-page"><h1>Photo not found</h1><a href="/discover">Explore photos</a></main>';document.title='Photo not found | Trust Web';return; }
+    if(photo){
       const image=all('img').find(i=>i.alt==='Lines'||i.alt==='Feu et glace.');
       if(image){image.src=photo.src;image.alt=photo.title;image.removeAttribute('data-src');}
-      const title=all('span').find(s=>s.textContent==='Lines'||s.textContent==='Feu et glace.');if(title)title.textContent=photo.title;
+      const title=all('span').find(s=>s.textContent==='Lines'||s.textContent==='Feu et glace.');
+      if(title){title.textContent=photo.title;const description=document.createElement('p');description.className='photo-copyright';description.textContent=copyrightNotice;title.before(description);if(photo.createdAt){const time=document.createElement('time');time.dateTime=new Date(photo.createdAt).toISOString();time.textContent=new Date(photo.createdAt).toLocaleString();const age=all('span',title.parentElement).find(el=>/\b(ago|yesterday)\b/.test(el.textContent));if(age)age.replaceWith(time);else title.after(time);}}
       const author=all('[data-track-id="creator_avatar"]').find(el=>el.tagName==='SPAN');if(author)author.textContent=photo.author;
+      if(photo.ownerId)all('[data-track-id="creator_avatar"]').forEach(el=>{if(el.textContent.trim()===photo.author)el.dataset.ownerHref=`/p/guest?user=${encodeURIComponent(photo.author)}&view=works`;});
       all('span').filter(s=>['Slovenia','Opole, Polska'].includes(s.textContent)).forEach(s=>s.textContent='');
       document.title=`${photo.title} by ${photo.author} | 500px`;
     }
@@ -1107,7 +1242,7 @@ async function initialize() {
   if(pageName==='blog')await renderBlog();
   refreshAccount();
   initializeHeaderMenus();
-  if(['/login','/signup'].includes(location.pathname))await login({signup:location.pathname==='/signup'});
+  if(location.pathname==='/login')await login();
   if(['/upload','/manager/works','/manager/licensing'].includes(location.pathname))await upload();
 }
 
