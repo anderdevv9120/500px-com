@@ -462,6 +462,13 @@ async function adminPhotoItems(href) {
   ];
 }
 
+function photoShareUrl(photo) {
+  const url = new URL(photo.href ? '/discover' : '/galleries/guest', location.origin);
+  if (!photo.href) url.searchParams.set('album', photo.albumId);
+  url.searchParams.set('photo', photo.href ? photo.href.split('/').pop() : photo.id);
+  return url.href;
+}
+
 async function share(url = location.href, title = 'Share this photo') {
   const dialog = openDialog(`<h2>${escapeHTML(title)}</h2><p>Share your inspiration with the world.</p><label for="share-url">Link</label><input id="share-url" readonly><button class="primary" style="width:100%;margin-top:20px" data-copy>Copy link</button>`);
   dialog.querySelector('input').value = url;
@@ -719,12 +726,13 @@ async function renderAdmin() {
       });
     } else {
       const photos = [...media.map(item=>({...item,src:item.url})), ...catalog.photos.filter(item=>!item.deleted).map(item=>({...item,seeded:true,id:item.href.split('/').pop()}))];
-      content.innerHTML = `<label for="admin-search">Find photos or videos</label><input id="admin-search" type="search" placeholder="Title or owner"><div class="admin-photos">${photos.map((photo,index)=>`<article data-admin-photo="${index}"><button type="button" class="admin-preview" data-admin-preview aria-label="View ${escapeHTML(photo.title)}">${photo.kind==='video'?`<video src="${escapeHTML(posterSrc(photo.src,photo.posterTime))}" preload="metadata" muted playsinline></video>${videoPlayBadge}`:`<img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy">`}</button><div><strong>${escapeHTML(photo.title)}</strong><p>${escapeHTML(photo.author)}</p><button type="button" data-edit-photo>Edit</button><button type="button" data-remove-photo>Delete</button></div></article>`).join('')}</div>`;
+      content.innerHTML = `<label for="admin-search">Find photos or videos</label><input id="admin-search" type="search" placeholder="Title or owner"><div class="admin-photos">${photos.map((photo,index)=>`<article data-admin-photo="${index}"><button type="button" class="admin-preview" data-admin-preview aria-label="View ${escapeHTML(photo.title)}">${photo.kind==='video'?`<video src="${escapeHTML(posterSrc(photo.src,photo.posterTime))}" preload="metadata" muted playsinline></video>${videoPlayBadge}`:`<img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy">`}</button><div><strong>${escapeHTML(photo.title)}</strong><p>${escapeHTML(photo.author)}</p><button type="button" data-edit-photo>Edit</button><button type="button" data-remove-photo>Delete</button><button type="button" data-share-photo>Share</button></div></article>`).join('')}</div>`;
       content.querySelector('#admin-search').addEventListener('input', event => all('[data-admin-photo]',content).forEach(row=>{const photo=photos[Number(row.dataset.adminPhoto)];row.hidden=!`${photo.title} ${photo.author}`.toLowerCase().includes(event.target.value.toLowerCase());}));
       content.addEventListener('click', async event => {
         const row = event.target.closest('[data-admin-photo]'); if (!row) return;
         if (event.target.closest('[data-admin-preview]')) { await lightbox(Number(row.dataset.adminPhoto), false, photos).catch(error=>toast(error.message)); return; }
         const photo = photos[Number(row.dataset.adminPhoto)], path = `api/admin/${photo.seeded?'seeded':'media'}/${encodeURIComponent(photo.id)}`;
+        if (event.target.closest('[data-share-photo]')) { await share(photoShareUrl(photo)); return; }
         if (event.target.closest('[data-remove-photo]') && confirm(`Delete “${photo.title}”?`)) {
           event.target.disabled = true;
           try { await mutate(path, 'DELETE'); } catch (error) { main.querySelector('.admin-status').textContent = error.message; event.target.disabled = false; }
@@ -1001,6 +1009,8 @@ async function handleClick(event) {
   const target=event.target instanceof Element?event.target:null;
   if(!target)return;
   if(target.closest('.admin-page'))return;
+  const photoShare = target.closest('[data-share-photo]');
+  if (photoShare) { event.preventDefault(); await share(photoShareUrl({href:photoShare.dataset.sharePhoto})); return; }
   const galleryAction=target.closest('[data-gallery-action]');
   if(galleryAction){
     if(galleryAction.dataset.galleryAction==='share')await share(location.href,'Share this gallery');
@@ -1086,7 +1096,7 @@ async function handleClick(event) {
     event.preventDefault();toggleStored('likes',photoKey,button,'local-liked');return;
   }
   if(label==='more'||label==='more options'||track==='more_menu_btn'||track==='comment_more_btn'){
-    event.preventDefault();showMenu(button||target,[{label:'Share',action:share},{label:'Save to gallery',action:()=>collect({href:photoKey})},{label:'Report photo',action:()=>toast('Report received in the local demo.')},...await adminPhotoItems(photoKey)]);return;
+    event.preventDefault();showMenu(button||target,[{label:'Share',action:()=>share(photoCard?photoShareUrl({href:photoKey}):location.href)},{label:'Save to gallery',action:()=>collect({href:photoKey})},{label:'Report photo',action:()=>toast('Report received in the local demo.')},...await adminPhotoItems(photoKey)]);return;
   }
   if(text==='Follow'||text==='Following'){
     const key=button.dataset.followOwner||location.pathname;const following=toggleStored('following',key,button,'local-active');button.textContent=following?'Following':'Follow';return;
@@ -1187,6 +1197,11 @@ async function initialize() {
     const photo=catalog.photos.find(item=>item.href===card.dataset.photoCard); if(!photo)return;
     if(photo.deleted||(pageName.startsWith('profile')&&!isGuestProfile&&photo.ownerId&&photo.author!==photo.originalAuthor)){card.closest('[data-masonry-item]')?.remove();card.remove();return;}
     const image=card.querySelector('img');if(image)image.alt=photo.title;
+    const shareButton = document.createElement('button');
+    shareButton.type = 'button'; shareButton.className = 'local-photo-share'; shareButton.dataset.sharePhoto = photo.href;
+    shareButton.setAttribute('aria-label', `Share ${photo.title}`); shareButton.title = 'Share';
+    shareButton.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
+    card.append(shareButton);
     const link=card.querySelector('a[aria-label^="View "]');if(link)link.setAttribute('aria-label',`View ${photo.title}`);
     const author=card.querySelector('[data-track-id="creator_avatar"] span');if(author)author.textContent=photo.author;
     if(photo.ownerId)card.querySelector('[data-track-id="creator_avatar"]')?.setAttribute('data-owner-href',`/p/guest?user=${encodeURIComponent(photo.author)}&view=works`);
@@ -1265,6 +1280,13 @@ async function initialize() {
   initializeHeaderMenus();
   if(location.pathname==='/login')await login();
   if(['/upload','/manager/works','/manager/licensing'].includes(location.pathname))await upload();
+  const sharedPhoto = new URLSearchParams(location.search).get('photo');
+  if (sharedPhoto) {
+    const photos = (pageName === 'gallery' ? galleryPhotos : catalog.photos).filter(photo => !photo.deleted);
+    const index = photos.findIndex(photo => (photo.href ? photo.href.split('/').pop() : photo.id) === sharedPhoto);
+    if (index < 0) toast('This photo is no longer available.');
+    else await lightbox(index, false, photos);
+  }
 }
 
 async function renderLeaderboard(period = document.querySelector('[data-leaderboard-view]')?.dataset.leaderboardView || 'weekly') {

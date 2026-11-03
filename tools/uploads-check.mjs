@@ -173,6 +173,19 @@ try {
   const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({title,ownerId:owner.id})});
   for(const [file,type,body] of [['a.png','image/png',png],['b.mp4','video/mp4',mp4]])
     await post(`/api/albums/${seeded.id}/media?title=${file}`,{method:'PUT',headers:{'content-type':type,...auth},body});
+  const adminPage=await context.newPage();
+  await adminPage.goto(origin+'/admin',{waitUntil:'networkidle'});
+  await adminPage.locator('[data-admin-photo]').filter({hasText:'a.png'}).first().getByRole('button',{name:'Share',exact:true}).click();
+  const sharedUpload=await adminPage.locator('#share-url').inputValue();
+  assert.equal(new URL(sharedUpload).searchParams.get('album'),seeded.id);
+  await adminPage.close();
+  const publicContext=await browser.newContext();
+  await publicContext.addInitScript(api=>{localStorage.uploadApi=api;},api);
+  const recipient=await publicContext.newPage();
+  await recipient.goto(sharedUpload,{waitUntil:'networkidle'});
+  await recipient.locator('.local-lightbox img[alt="a.png"]').waitFor();
+  assert.equal(await recipient.locator('.local-auth').count(),0,'Shared uploads open without login');
+  await publicContext.close();
   const guest=await context.newPage();
   guest.on('pageerror',error=>errors.push(error.message));
   guest.on('dialog',d=>{errors.push('alert: '+d.message());d.dismiss();});
