@@ -5,10 +5,10 @@ import { readFileSync } from 'node:fs';
 import worker from '../src/index.js';
 
 // In-memory SQLite exercises the real migration and SQL without touching Cloudflare.
-function fixture() {
+function fixture(t) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  for (const name of ['0001_init.sql','0002_users.sql','0003_poster_time.sql','0004_admin.sql']) {
+  for (const name of ['0001_init.sql','0002_users.sql','0003_poster_time.sql','0004_admin.sql','0005_imagekit.sql']) {
     sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8'));
   }
   const DB = {
@@ -31,7 +31,17 @@ function fixture() {
     },
   };
   const deleted = [];
-  const env = {DB, MEDIA:{async delete(key) { deleted.push(key); }}};
+  const env = {DB, IMAGEKIT_PRIVATE_KEY:'private_test', UPLOADS_PER_HOUR:'50', STORAGE_CAP_BYTES:'5368709120'};
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(init.headers.Authorization, `Basic ${btoa('private_test:')}`);
+    if (url.endsWith('/batch/deleteByFileIds')) {
+      const {fileIds}=JSON.parse(init.body); deleted.push(fileIds);
+      return Response.json({successfullyDeletedFileIds:fileIds});
+    }
+    assert.equal(init.method,'DELETE');
+    deleted.push(decodeURIComponent(url.split('/').pop()));
+    return new Response(null,{status:204});
+  });
   const call = (path, method='GET', body, token) => worker.fetch(new Request(`https://test.local${path}`, {
     method, headers:{'Content-Type':'application/json', ...(token && {Authorization:`Bearer ${token}`})},
     ...(body !== undefined && {body:JSON.stringify(body)}),
@@ -39,8 +49,8 @@ function fixture() {
   return {sqlite,call,deleted,env};
 }
 
-test('admin account, registration closure, permissions and user lifecycle', async () => {
-  const {sqlite,call}=fixture();
+test('admin account, registration closure, permissions and user lifecycle', async (t) => {
+  const {sqlite,call}=fixture(t);
   try {
     assert.equal((await call('/api/signup','POST',{username:'new',password:'secret1'})).status,403);
     assert.equal((await call('/api/admin/users')).status,401);
@@ -73,13 +83,13 @@ test('admin account, registration closure, permissions and user lifecycle', asyn
   } finally { sqlite.close(); }
 });
 
-test('photo metadata and transfer preserve siblings; seeded overrides persist', async () => {
-  const {sqlite,call,deleted}=fixture();
+test('photo metadata and transfer preserve siblings; seeded overrides persist', async (t) => {
+  const {sqlite,call,deleted}=fixture(t);
   try {
     const {token}=await (await call('/api/login','POST',{username:'quyenday',password:'quyenday123'})).json();
     const owner=await (await call('/api/admin/users','POST',{username:'Owner',password:'secret1'},token)).json();
     const album=await (await call('/api/albums','POST',{title:'Album'},token)).json();
-    const insert=sqlite.prepare("INSERT INTO media (id, album_id, r2_key, kind, content_type, size, title, author, ip_hash, created_at) VALUES (?, ?, ?, 'image', 'image/png', 10, 'Original', 'quyenday', 'ip', 1000)");
+    const insert=sqlite.prepare("INSERT INTO media (id, album_id, imagekit_file_id, url, kind, content_type, size, title, author, ip_hash, created_at) VALUES (?, ?, ?, 'https://ik.imagekit.io/test/photo.png', 'image', 'image/png', 10, 'Original', 'quyenday', 'ip', 1000)");
     insert.run('one',album.id,'one.png'); insert.run('two',album.id,'two.png');
     assert.equal(sqlite.prepare('SELECT description FROM media WHERE id=?').get('one').description,'');
     assert.equal((await (await call('/api/media')).json()).find(photo=>photo.id==='one').description,'');
@@ -94,6 +104,8 @@ test('photo metadata and transfer preserve siblings; seeded overrides persist', 
     assert.equal(sqlite.prepare('SELECT album_id FROM media WHERE id=?').get('two').album_id,album.id);
     const listing=await (await call('/api/media?user=Owner')).json();
     assert.equal(listing[0].description,edit.description);
+    assert.equal(listing[0].url,'https://ik.imagekit.io/test/photo.png');
+    assert.equal((await (await call('/api/albums?user=Owner')).json())[0].cover.url,listing[0].url);
     assert.equal((await call('/api/admin/media/one','PUT',{...edit,description:''},token)).status,200);
     assert.equal((await (await call('/api/media?user=Owner')).json())[0].description,'');
     assert.equal((await call(`/api/admin/users/${owner.id}`,'DELETE',undefined,token)).status,409,'owned photos require explicit confirmation');
@@ -114,8 +126,8 @@ test('photo metadata and transfer preserve siblings; seeded overrides persist', 
   } finally { sqlite.close(); }
 });
 
-test('confirmed user deletion removes owned uploads, albums, sessions and seeded photos only', async () => {
-  const {sqlite,call,deleted}=fixture();
+test('confirmed user deletion removes owned uploads, albums, sessions and seeded photos only', async (t) => {
+  const {sqlite,call,deleted}=fixture(t);
   try {
     const {token}=await (await call('/api/login','POST',{username:'quyenday',password:'quyenday123'})).json();
     const owner=await (await call('/api/admin/users','POST',{username:'Owner',password:'secret1'},token)).json();
@@ -123,7 +135,7 @@ test('confirmed user deletion removes owned uploads, albums, sessions and seeded
     const album=await (await call('/api/albums','POST',{title:'Owned album',ownerId:owner.id},token)).json();
     await call('/api/albums','POST',{title:'Empty album',ownerId:owner.id},token);
     const other=await (await call('/api/albums','POST',{title:'Keep admin album'},token)).json();
-    const insert=sqlite.prepare("INSERT INTO media (id, album_id, r2_key, kind, content_type, size, title, author, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, 10, 'Media', 'Owner', 'ip', 1000)");
+    const insert=sqlite.prepare("INSERT INTO media (id, album_id, imagekit_file_id, kind, content_type, size, title, author, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, 10, 'Media', 'Owner', 'ip', 1000)");
     for(let i=0;i<1001;i++) insert.run(`owned-${i}`,album.id,`owned-${i}`,i%2?'video':'image',i%2?'video/mp4':'image/png');
     insert.run('keep',other.id,'keep.png','image','image/png');
     const seededId='SDjF7aAGorn';
@@ -139,7 +151,7 @@ test('confirmed user deletion removes owned uploads, albums, sessions and seeded
     assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM media').get().n,1002);
     assert.equal((await call('/api/admin/users/trust-web-admin','DELETE',{deleteMedia:true},token)).status,403);
     assert.equal((await call(path,'DELETE',{deleteMedia:true},token)).status,204);
-    assert.deepEqual(deleted.map(keys=>keys.length),[1000,1]);
+    assert.deepEqual(deleted.map(keys=>keys.length),[100,100,100,100,100,100,100,100,100,100,1]);
     assert.equal(new Set(deleted.flat()).size,1001);
     assert.equal(deleted.flat().includes('keep.png'),false);
     for(const table of ['users','sessions','albums']) {
@@ -153,16 +165,65 @@ test('confirmed user deletion removes owned uploads, albums, sessions and seeded
   } finally { sqlite.close(); }
 });
 
-test('failed file cleanup keeps the user and metadata available for retry', async () => {
-  const {sqlite,call,env}=fixture();
+test('failed file cleanup keeps the user and metadata available for retry', async (t) => {
+  const {sqlite,call}=fixture(t);
   try {
     const {token}=await (await call('/api/login','POST',{username:'quyenday',password:'quyenday123'})).json();
     const owner=await (await call('/api/admin/users','POST',{username:'Owner',password:'secret1'},token)).json();
     const album=await (await call('/api/albums','POST',{title:'Album',ownerId:owner.id},token)).json();
-    sqlite.prepare("INSERT INTO media (id, album_id, r2_key, kind, content_type, size, title, author, ip_hash, created_at) VALUES ('one', ?, 'one.png', 'image', 'image/png', 10, 'Photo', 'Owner', 'ip', 1000)").run(album.id);
-    env.MEDIA.delete=async()=>{throw Error('Storage unavailable');};
-    assert.equal((await call(`/api/admin/users/${owner.id}`,'DELETE',{deleteMedia:true},token)).status,500);
+    sqlite.prepare("INSERT INTO media (id, album_id, imagekit_file_id, kind, content_type, size, title, author, ip_hash, created_at) VALUES ('one', ?, 'one.png', 'image', 'image/png', 10, 'Photo', 'Owner', 'ip', 1000)").run(album.id);
+    t.mock.method(globalThis,'fetch',async()=>{throw Error('Storage unavailable');});
+    assert.equal((await call(`/api/admin/users/${owner.id}`,'DELETE',{deleteMedia:true},token)).status,502);
     assert.equal(sqlite.prepare('SELECT id FROM users WHERE id=?').get(owner.id).id,owner.id);
     assert.equal(sqlite.prepare('SELECT album_id FROM media WHERE id=?').get('one').album_id,album.id);
   } finally { sqlite.close(); }
+});
+
+test('upload stores ImageKit identity and URL; a failed D1 insert cleans up the file', async (t) => {
+  const {sqlite,call,env}=fixture(t);
+  try {
+    const {token}=await (await call('/api/login','POST',{username:'quyenday',password:'quyenday123'})).json();
+    const album=await (await call('/api/albums','POST',{title:'ImageKit album'},token)).json();
+    const png=Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,0,0,0,0,0]);
+    const deleted=[];
+    let uploads=0;
+    t.mock.method(globalThis,'fetch',async (url,init)=>{
+      if(init.method==='DELETE') {deleted.push(url); return new Response(null,{status:204});}
+      const form=await new Request(url,init).formData();
+      assert.equal(form.get('folder'),`/500px/albums/${album.id}`);
+      uploads++;
+      return Response.json({fileId:`file-${uploads}`,url:`https://ik.imagekit.io/test/${form.get('fileName')}`,size:png.length});
+    });
+    const upload=()=>worker.fetch(new Request(`https://test.local/api/albums/${album.id}/media?title=Photo`,{
+      method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'image/png','Content-Length':String(png.length)},body:png,
+    }),env);
+    const response=await upload();
+    assert.equal(response.status,201);
+    const media=await response.json();
+    assert.equal(new URL(media.url).searchParams.get('tr'),'orig-true');
+    assert.equal(sqlite.prepare('SELECT imagekit_file_id FROM media WHERE id=?').get(media.id).imagekit_file_id,'file-1');
+    assert.equal((await (await call(`/api/albums/${album.id}`)).json()).media[0].url,media.url);
+    sqlite.exec("CREATE TRIGGER fail_media BEFORE INSERT ON media BEGIN SELECT RAISE(ABORT, 'Insert failed'); END");
+    assert.equal((await upload()).status,500);
+    assert.deepEqual(deleted,['https://api.imagekit.io/v1/files/file-2']);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM media').get().n,1);
+  } finally { sqlite.close(); }
+});
+
+test('ImageKit migration clears old upload rows and preserves accounts and seeded edits', () => {
+  const sqlite=new DatabaseSync(':memory:');
+  try {
+    sqlite.exec('PRAGMA foreign_keys = ON');
+    for(const name of ['0001_init.sql','0002_users.sql','0003_poster_time.sql','0004_admin.sql'])
+      sqlite.exec(readFileSync(new URL(`../migrations/${name}`,import.meta.url),'utf8'));
+    sqlite.exec("INSERT INTO albums VALUES ('old','trust-web-admin','Old album','',1000)");
+    sqlite.exec("INSERT INTO media (id,album_id,r2_key,kind,content_type,size,title,author,ip_hash,created_at) VALUES ('old','old','old.png','image','image/png',10,'Photo','quyenday','ip',1000)");
+    sqlite.exec("INSERT INTO photo_overrides (id,title,description) VALUES ('seeded','Edited','Description')");
+    sqlite.exec(readFileSync(new URL('../migrations/0005_imagekit.sql',import.meta.url),'utf8'));
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM media').get().n,0);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM albums').get().n,0);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM users').get().n,1);
+    assert.equal(sqlite.prepare('SELECT title FROM photo_overrides').get().title,'Edited');
+    assert.doesNotThrow(()=>sqlite.prepare('SELECT imagekit_file_id,url FROM media'));
+  } finally {sqlite.close();}
 });

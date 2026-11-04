@@ -1,3 +1,4 @@
+// Requires worker/.dev.vars with an ImageKit key for a disposable media library.
 // Run against a FRESH `wrangler dev` (the media section fills the rate limit and storage cap).
 // From worker/ (PowerShell or Git Bash), with <tmp> an empty temp dir:
 //   npx wrangler d1 migrations apply 500px-guest-uploads --local --persist-to <tmp>
@@ -57,7 +58,7 @@ if (process.argv.includes('--smoke')) {
     const media = await res.json();
     const albums = await (await call('/api/albums')).json();
     assert.equal(albums.find((a) => a.id === media.albumId)?.count, 1);
-    const ranged = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=0-3' } });
+    const ranged = await fetch(media.url, { headers: { Range: 'bytes=0-3' } });
     assert.equal(ranged.status, 206);
     assert.equal(ranged.headers.get('content-range'), `bytes 0-3/${png.length}`);
   } finally {
@@ -138,10 +139,10 @@ if (process.argv.includes('--smoke')) {
 
   const album = await (await postAlbum({ title: 'Media album' })).json();
   const png = await readFile(new URL('../assets/0072-zeiss-badge-hGfrjZ9e.png', import.meta.url));
-  assert.ok(STORAGE_CAP > png.length + 5 * 32 && STORAGE_CAP < 2 * png.length, 'CHECK_STORAGE_CAP must be between 1x and 2x the PNG size');
   const put = (id, query, type, body, as = token) =>
     call(`/api/albums/${id}/media?${query}`, { method: 'PUT', headers: { 'Content-Type': type, ...(as && { Authorization: `Bearer ${as}` }) }, body });
-  const tiny = Buffer.concat([png.subarray(0, 8), Buffer.alloc(24)]);
+  const tiny = await readFile(new URL('../assets/0410-IE9JII6Z1Ys.png', import.meta.url));
+  assert.ok(STORAGE_CAP > png.length + UPLOADS_PER_HOUR * tiny.length && STORAGE_CAP < 2 * png.length, 'CHECK_STORAGE_CAP must fit one PNG plus the small fixtures, but not two PNGs');
 
   const res = await put(album.id, 'title=%3Cb%3Ex%3C%2Fb%3E&author=Spoof', 'image/png', png);
   assert.equal(res.status, 201);
@@ -151,7 +152,8 @@ if (process.argv.includes('--smoke')) {
   assert.equal(media.title, '<b>x</b>');
   assert.equal(media.contentType, 'image/png');
   assert.equal(media.size, png.length);
-  assert.ok(media.url.startsWith(`${API}/media/${album.id}/${media.id}.png`), media.url);
+  assert.equal(new URL(media.url).protocol, 'https:');
+  assert.ok(new URL(media.url).pathname.includes(`/500px/albums/${album.id}/`), media.url);
 
   const albums = await (await call('/api/albums')).json();
   const listed = albums.find((a) => a.id === album.id);
@@ -168,22 +170,21 @@ if (process.argv.includes('--smoke')) {
   assert.equal((await put(album.id, 'title=m', 'image/png', png, mallory)).status, 403, "can't upload into someone else's album");
   assert.equal((await put(album.id, 'title=m', 'image/png', png, null)).status, 401);
 
-  const full = await call(new URL(media.url).pathname);
+  const full = await fetch(media.url);
   assert.equal(full.status, 200);
   assert.equal(full.headers.get('content-type'), 'image/png');
-  assert.ok(full.headers.get('cache-control').includes('immutable'));
   assert.equal((await full.arrayBuffer()).byteLength, png.length);
 
-  const ranged = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=0-3' } });
+  const ranged = await fetch(media.url, { headers: { Range: 'bytes=0-3' } });
   assert.equal(ranged.status, 206);
   assert.equal((await ranged.arrayBuffer()).byteLength, 4);
   assert.equal(ranged.headers.get('content-range'), `bytes 0-3/${png.length}`);
   const n = png.length;
-  const open = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=0-' } });
+  const open = await fetch(media.url, { headers: { Range: 'bytes=0-' } });
   assert.equal(open.status, 206);
   assert.equal(open.headers.get('content-range'), `bytes 0-${n - 1}/${n}`);
   assert.equal((await open.arrayBuffer()).byteLength, n);
-  const suffix = await call(new URL(media.url).pathname, { headers: { Range: 'bytes=-4' } });
+  const suffix = await fetch(media.url, { headers: { Range: 'bytes=-4' } });
   assert.equal(suffix.status, 206);
   assert.equal(suffix.headers.get('content-range'), `bytes ${n - 4}-${n - 1}/${n}`);
   assert.equal((await suffix.arrayBuffer()).byteLength, 4);
@@ -232,7 +233,7 @@ if (process.argv.includes('--smoke')) {
   const del = (path, token) =>
     call(path, { method: 'DELETE', headers: token === undefined ? {} : { Authorization: `Bearer ${token}` } });
   const png = await readFile(new URL('../assets/0072-zeiss-badge-hGfrjZ9e.png', import.meta.url));
-  const tiny = Buffer.concat([png.subarray(0, 8), Buffer.alloc(24)]);
+  const tiny = await readFile(new URL('../assets/0410-IE9JII6Z1Ys.png', import.meta.url));
 
   // the media section left the rate limit full and storage near the cap: free it by deleting its rows
   const leftovers = await (await call('/api/media')).json();
@@ -241,19 +242,19 @@ if (process.argv.includes('--smoke')) {
   const firstPath = `/api/media/${first.id}`;
   assert.equal((await del(firstPath)).status, 401);
   assert.equal((await del(firstPath, 'wrong')).status, 401);
-  assert.equal((await call(new URL(first.url).pathname)).status, 200, 'rejected delete must not remove the object');
+  assert.equal((await fetch(first.url)).status, 200, 'rejected delete must not remove the object');
   assert.equal((await del(firstPath, ADMIN_TOKEN)).status, 204);
-  assert.equal((await call(new URL(first.url).pathname)).status, 404);
+  assert.equal((await (await call('/api/media')).json()).some(m => m.id === first.id), false);
   assert.equal((await del(firstPath, ADMIN_TOKEN)).status, 404);
   for (const m of rest) assert.equal((await del(`/api/media/${m.id}`, ADMIN_TOKEN)).status, 204);
   assert.equal((await (await call('/api/media')).json()).length, 0);
 
   const album = await (await postAlbum({ title: 'Doomed' })).json();
-  const urls = [];
-  for (const body of [png.subarray(0, 100), tiny]) {
+  const mediaIds = [];
+  for (const body of [png, tiny]) {
     const res = await call(`/api/albums/${album.id}/media?title=d`, { method: 'PUT', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${token}` }, body });
     assert.equal(res.status, 201);
-    urls.push(new URL((await res.json()).url).pathname);
+    mediaIds.push((await res.json()).id);
   }
   const albumPath = `/api/albums/${album.id}`;
   assert.equal((await del(albumPath)).status, 401);
@@ -261,7 +262,8 @@ if (process.argv.includes('--smoke')) {
   assert.equal((await call(albumPath)).status, 200);
   assert.equal((await del(albumPath, ADMIN_TOKEN)).status, 204);
   assert.equal((await call(albumPath)).status, 404);
-  for (const u of urls) assert.equal((await call(u)).status, 404);
+  const remaining = await (await call('/api/media')).json();
+  for (const id of mediaIds) assert.equal(remaining.some(m => m.id === id), false);
   assert.equal((await del(albumPath, ADMIN_TOKEN)).status, 404);
 
   assert.equal((await del('/api/media/does-not-exist', ADMIN_TOKEN)).status, 404);

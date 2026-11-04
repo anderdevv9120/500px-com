@@ -40,7 +40,7 @@ let leaderboardRequest = 0;
 const questParams = new URLSearchParams(location.search);
 
 // Use the deployed Worker/D1 everywhere; localStorage.uploadApi can explicitly override it.
-const uploadApi = (() => { try { return localStorage.uploadApi; } catch {} })() || 'https://500px-guest-uploads.lamdan0901.workers.dev';
+const uploadApi = (() => { try { return localStorage.uploadApi; } catch {} })() || 'https://500px-guest-uploads.davatgy-plouse.workers.dev';
 const uploadLimits = {'image/jpeg':20,'image/png':20,'image/webp':20,'image/gif':20,'image/avif':20,'video/mp4':95,'video/webm':95,'video/quicktime':95};
 const uploadDown = 'Uploads are unavailable right now';
 
@@ -338,6 +338,7 @@ async function login({then} = {}) {
       dialog.close();
       refreshAccount();
       toast(`Welcome, ${username}.`);
+      if (pageName === 'welcome') { location.replace('/discover'); return; }
       await then?.();
     } catch (error) { notice.textContent = error.message; }
     finally { busy(false); }
@@ -354,11 +355,6 @@ function loadFragmentStyles() {
 
 function refreshAccount() {
   if (state.user) all('header button').filter(b => ['Log in','My account'].includes(b.textContent.trim())).forEach(b => { b.textContent = 'My account'; wireHeaderTrigger(b); });
-  all('header button').filter(b => ['Log in','My account'].includes(b.textContent.trim())).forEach(b => b.toggleAttribute('data-login-hidden', b.textContent.trim() === 'Log in')); // admin signs in at /admin
-  // onboarding bar ("Not sure what to select?" · Skip · Log in): signed-in visitors keep Skip/Continue, lose Log in
-  const onboardingBar = document.querySelector('[data-track-id="onboarding_skip"]')?.closest('.css-1nemv3o');
-  const onboardingLogin = onboardingBar && findText('Log in', onboardingBar);
-  if (onboardingLogin) onboardingLogin.hidden = Boolean(state.user);
   const comment = all('.single-line').find(el => el.textContent.trim() === 'Log in to comment');
   if (state.user && comment) {
     comment.innerHTML = '<form class="local-comment-form"><input aria-label="Add a comment" placeholder="Add a comment…" maxlength="1000" required><button type="submit">Post</button></form>';
@@ -1141,6 +1137,7 @@ function sortSearch(reverse) {
 
 async function initialize() {
   if (location.pathname === '/signup') { location.replace('/login'); return; }
+  if (pageName === 'welcome' && (state.user || state.exploring)) { location.replace('/discover'); return; }
   all('a,button,[role="button"]').filter(element=>element.getAttribute('href')==='/signup'||element.textContent.trim()==='Sign up'||element.getAttribute('aria-label')==='Sign up').forEach(element=>{element.hidden=true;});
   if (pageName === 'admin') { refreshAccount(); initializeHeaderMenus(); await renderAdmin(); return; }
   if (state.user) {
@@ -1208,7 +1205,6 @@ async function initialize() {
   });
   layoutGrids();
   if(pageName==='welcome'){
-    if(state.exploring){location.replace('/discover');return;}
     all('.photo-container[role="button"]').forEach(card=>{const name=card.querySelector(':scope > span:last-child')?.textContent.trim();if(state.categories.includes(name))card.setAttribute('aria-pressed','true');});
     const heading=document.querySelector('h1');if(heading)heading.textContent=`Select categories (${state.categories.length}/4)`;
   }

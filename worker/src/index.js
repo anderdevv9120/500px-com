@@ -1,4 +1,5 @@
-import { checkUpload, cleanText, extensionFor, posterTime, sniffMatches, sniffMediaType } from './rules.js';
+import { checkUpload, cleanText, extensionFor, posterTime } from './rules.js';
+import { deleteImageKitFile, deleteStoredMedia, MediaStorageError, uploadImageKit } from './imagekit.js';
 import catalog from '../../catalog.json' with { type: 'json' };
 
 export const json = (data, status = 200) =>
@@ -19,11 +20,11 @@ export function withCors(response, request, env) {
   return res;
 }
 
-export const toMedia = (row, origin) => ({
+export const toMedia = (row) => ({
   id: row.id,
   albumId: row.album_id,
   kind: row.kind,
-  url: `${origin}/media/${row.r2_key}`,
+  url: row.url,
   title: row.title,
   description: row.description || '',
   author: row.author,
@@ -34,31 +35,31 @@ export const toMedia = (row, origin) => ({
   createdAt: row.created_at,
 });
 
-const toAlbum = (row, origin) => ({
+const toAlbum = (row) => ({
   id: row.id,
   title: row.title,
   description: row.description,
   createdAt: row.created_at,
   owner: row.username,
   count: row.count,
-  cover: row.cover_key ? { url: `${origin}/media/${row.cover_key}`, kind: row.cover_kind, posterTime: row.cover_poster } : null,
+  cover: row.cover_url ? { url: row.cover_url, kind: row.cover_kind, posterTime: row.cover_poster } : null,
 });
 
 // ?user=<username> narrows the public listings to one account
-async function listAlbums(env, origin, url) {
+async function listAlbums(env, url) {
   const { results } = await env.DB.prepare(
     `SELECT a.*, u.username, COUNT(m.id) AS count,
-       (SELECT r2_key FROM media WHERE album_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS cover_key,
+       (SELECT url FROM media WHERE album_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS cover_url,
        (SELECT kind FROM media WHERE album_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS cover_kind,
        (SELECT poster_time FROM media WHERE album_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS cover_poster
      FROM albums a JOIN media m ON m.album_id = a.id JOIN users u ON u.id = a.user_id
      WHERE ?1 IS NULL OR u.username = ?1
      GROUP BY a.id ORDER BY a.created_at DESC, a.rowid DESC`,
   ).bind(url.searchParams.get('user')).all();
-  return json(results.map((r) => toAlbum(r, origin)));
+  return json(results.map(toAlbum));
 }
 
-async function getAlbum(env, origin, id) {
+async function getAlbum(env, id) {
   const album = await env.DB.prepare('SELECT a.*, u.username FROM albums a JOIN users u ON u.id = a.user_id WHERE a.id = ?').bind(id).first();
   if (!album) return error(404, 'Album not found');
   const { results } = await env.DB.prepare(
@@ -71,18 +72,18 @@ async function getAlbum(env, origin, id) {
     description: album.description,
     owner: album.username,
     createdAt: album.created_at,
-    media: results.map((r) => toMedia(r, origin)),
+    media: results.map(toMedia),
   });
 }
 
-async function listMedia(env, origin, url) {
+async function listMedia(env, url) {
   const asked = parseInt(url.searchParams.get('limit'), 10);
   const limit = Number.isNaN(asked) ? 200 : Math.min(Math.max(asked, 1), 200);
   const { results } = await env.DB.prepare(
     `SELECT m.* FROM media m JOIN albums a ON a.id = m.album_id JOIN users u ON u.id = a.user_id
      WHERE ?2 IS NULL OR u.username = ?2 ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?1`,
   ).bind(limit, url.searchParams.get('user')).all();
-  return json(results.map((r) => toMedia(r, origin)));
+  return json(results.map(toMedia));
 }
 
 const readJson = (request) => request.json()
@@ -105,7 +106,7 @@ async function createAlbum(request, env, user) {
   await env.DB.prepare('INSERT INTO albums (id, user_id, title, description, created_at) VALUES (?, ?, ?, ?, ?)')
     .bind(album.id, owner.id, album.title, album.description, album.created_at)
     .run();
-  return json(toAlbum({ ...album, username: owner.username, count: 0 }, ''), 201);
+  return json(toAlbum({ ...album, username: owner.username, count: 0 }), 201);
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -185,7 +186,7 @@ async function currentUser(request, env) {
   ).bind(hex(await sha256(token)), Date.now() - SESSION_MS).first();
 }
 
-async function uploadMedia(request, env, origin, url, albumId, user) {
+async function uploadMedia(request, env, url, albumId) {
   const album = await env.DB.prepare('SELECT a.user_id, u.username FROM albums a JOIN users u ON u.id = a.user_id WHERE a.id = ?').bind(albumId).first();
   if (!album) return error(404, 'Album not found');
 
@@ -207,21 +208,16 @@ async function uploadMedia(request, env, origin, url, albumId, user) {
   const { used } = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) AS used FROM media').first();
   if (used + size > Number(env.STORAGE_CAP_BYTES)) return error(507, 'Demo storage is full.');
 
-  // ponytail: ext comes from the declared type (the sniff runs after the write); identical to the sniffed ext for images
   const id = crypto.randomUUID();
-  const key = `${albumId}/${id}.${extensionFor(contentType)}`;
-  const stored = await env.MEDIA.put(key, request.body, { httpMetadata: { contentType } });
+  const stored = await uploadImageKit(env, request, {
+    fileName: `${id}.${extensionFor(contentType)}`, folder: `/500px/albums/${albumId}`, contentType, size,
+  });
   try {
-    const head = await env.MEDIA.get(key, { range: { offset: 0, length: 16 } });
-    const sniffed = sniffMediaType(new Uint8Array(await head.arrayBuffer()));
-    if (!sniffMatches(contentType, sniffed)) {
-      await env.MEDIA.delete(key);
-      return error(415, "That file doesn't look like a supported photo or video.");
-    }
     const row = {
       id,
       album_id: albumId,
-      r2_key: key,
+      imagekit_file_id: stored.fileId,
+      url: stored.url,
       kind: check.kind,
       content_type: contentType,
       size: stored.size,
@@ -231,40 +227,20 @@ async function uploadMedia(request, env, origin, url, albumId, user) {
       created_at: Date.now(),
     };
     await env.DB.prepare(
-      'INSERT INTO media (id, album_id, r2_key, kind, content_type, size, title, author, poster_time, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).bind(row.id, row.album_id, row.r2_key, row.kind, row.content_type, row.size, row.title, row.author, row.poster_time, hash, row.created_at).run();
-    return json(toMedia(row, origin), 201);
+      'INSERT INTO media (id, album_id, imagekit_file_id, url, kind, content_type, size, title, author, poster_time, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(row.id, row.album_id, row.imagekit_file_id, row.url, row.kind, row.content_type, row.size, row.title, row.author, row.poster_time, hash, row.created_at).run();
+    return json(toMedia(row), 201);
   } catch (err) {
-    await env.MEDIA.delete(key);
+    await deleteImageKitFile(env, stored.fileId);
     throw err;
   }
-}
-
-async function serveMedia(request, env, key) {
-  const object = await env.MEDIA.get(key, { range: request.headers });
-  if (!object) return error(404, 'Not found');
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set('ETag', object.httpEtag);
-  headers.set('Accept-Ranges', 'bytes');
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  if (request.headers.has('Range') && object.range) {
-    // R2Range may echo the request shape: {offset, length?} | {offset?, length} | {suffix}
-    const r = object.range;
-    const offset = r.offset ?? (r.suffix != null ? object.size - r.suffix : 0);
-    const length = r.length ?? object.size - offset;
-    headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
-    return new Response(object.body, { status: 206, headers });
-  }
-  return new Response(object.body, { headers });
 }
 
 async function deleteAlbum(env, id) {
   const album = await env.DB.prepare('SELECT user_id FROM albums WHERE id = ?').bind(id).first();
   if (!album) return error(404, 'Album not found');
-  const { results } = await env.DB.prepare('SELECT r2_key FROM media WHERE album_id = ?').bind(id).all();
-  // ponytail: R2 delete takes up to 1000 keys per call; fine for a demo capped by storage, chunk if it ever matters
-  if (results.length) await env.MEDIA.delete(results.map((r) => r.r2_key));
+  const { results } = await env.DB.prepare('SELECT imagekit_file_id FROM media WHERE album_id = ?').bind(id).all();
+  await deleteStoredMedia(env, results);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM media WHERE album_id = ?').bind(id),
     env.DB.prepare('DELETE FROM albums WHERE id = ?').bind(id),
@@ -273,9 +249,9 @@ async function deleteAlbum(env, id) {
 }
 
 async function deleteMedia(env, id) {
-  const row = await env.DB.prepare('SELECT m.r2_key, m.album_id, a.user_id FROM media m JOIN albums a ON a.id = m.album_id WHERE m.id = ?').bind(id).first();
+  const row = await env.DB.prepare('SELECT m.imagekit_file_id, m.album_id, a.user_id FROM media m JOIN albums a ON a.id = m.album_id WHERE m.id = ?').bind(id).first();
   if (!row) return error(404, 'Media not found');
-  await env.MEDIA.delete(row.r2_key);
+  await deleteImageKitFile(env, row.imagekit_file_id);
   // an album with no media is invisible everywhere, so drop it with its last item
   await env.DB.batch([
     env.DB.prepare('DELETE FROM media WHERE id = ?').bind(id),
@@ -306,10 +282,8 @@ async function adminUsers(request, env, id) {
     const owned = await env.DB.prepare('SELECT (SELECT COUNT(*) FROM media m JOIN albums a ON a.id = m.album_id WHERE a.user_id = ?1) + (SELECT COUNT(*) FROM photo_overrides WHERE user_id = ?1 AND deleted = 0) AS n').bind(id).first();
     const body = await readJson(request);
     if (owned.n && body?.deleteMedia !== true) return error(409, 'This user has media. Confirm deletion to remove all of their albums, photos and videos.');
-    const { results } = await env.DB.prepare('SELECT m.r2_key FROM media m JOIN albums a ON a.id = m.album_id WHERE a.user_id = ?').bind(id).all();
-    for (let offset = 0; offset < results.length; offset += 1000) {
-      await env.MEDIA.delete(results.slice(offset, offset + 1000).map(row => row.r2_key));
-    }
+    const { results } = await env.DB.prepare('SELECT m.imagekit_file_id FROM media m JOIN albums a ON a.id = m.album_id WHERE a.user_id = ?').bind(id).all();
+    await deleteStoredMedia(env, results);
     await env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
       env.DB.prepare('UPDATE photo_overrides SET user_id = NULL, deleted = 1 WHERE user_id = ?').bind(id),
@@ -378,7 +352,7 @@ async function editPhoto(request, env, id, seeded) {
 
 async function route(request, env) {
   const url = new URL(request.url);
-  const { origin, pathname } = url;
+  const { pathname } = url;
   const { method } = request;
   if (method === 'OPTIONS') return json(null, 204);
 
@@ -398,7 +372,7 @@ async function route(request, env) {
     if (users) return adminUsers(request, env, users[1]);
     if (pathname === '/api/admin/media' && method === 'GET') {
       const { results } = await env.DB.prepare('SELECT m.*, a.user_id FROM media m JOIN albums a ON a.id = m.album_id ORDER BY m.created_at DESC').all();
-      return json(results.map(row => toMedia(row, origin)));
+      return json(results.map(toMedia));
     }
     const photo = pathname.match(/^\/api\/admin\/(seeded|media)\/([^/]+)$/);
     if (photo) return editPhoto(request, env, photo[2], photo[1] === 'seeded');
@@ -407,17 +381,15 @@ async function route(request, env) {
 
   const albumMatch = pathname.match(/^\/api\/albums\/([^/]+)$/);
   const uploadMatch = pathname.match(/^\/api\/albums\/([^/]+)\/media$/);
-  if (pathname === '/api/albums' && method === 'GET') return listAlbums(env, origin, url);
-  if (albumMatch && method === 'GET') return getAlbum(env, origin, albumMatch[1]);
+  if (pathname === '/api/albums' && method === 'GET') return listAlbums(env, url);
+  if (albumMatch && method === 'GET') return getAlbum(env, albumMatch[1]);
   if ((pathname === '/api/albums' && method === 'POST') || (uploadMatch && method === 'PUT')) {
     const user = await currentUser(request, env);
     if (!user) return error(401, 'Log in to upload');
     if (!user.is_admin) return error(403, 'Only the main admin can upload');
-    return uploadMatch ? uploadMedia(request, env, origin, url, uploadMatch[1], user) : createAlbum(request, env, user);
+    return uploadMatch ? uploadMedia(request, env, url, uploadMatch[1]) : createAlbum(request, env, user);
   }
-  const mediaMatch = pathname.match(/^\/media\/(.+)$/);
-  if (mediaMatch && method === 'GET') return serveMedia(request, env, mediaMatch[1]);
-  if (pathname === '/api/media' && method === 'GET') return listMedia(env, origin, url);
+  if (pathname === '/api/media' && method === 'GET') return listMedia(env, url);
   const mediaIdMatch = pathname.match(/^\/api\/media\/([^/]+)$/);
   if ((albumMatch || mediaIdMatch) && method === 'DELETE') {
     const user = await currentUser(request, env);
@@ -434,8 +406,8 @@ export default {
     try {
       response = await route(request, env, ctx);
     } catch (err) {
-      console.error(err);
-      response = error(500, 'Something went wrong');
+      if (err instanceof MediaStorageError) response = error(err.status, err.message);
+      else { console.error(err); response = error(500, 'Something went wrong'); }
     }
     return withCors(response, request, env);
   },

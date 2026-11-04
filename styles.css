@@ -256,10 +256,7 @@ button.local-delete { position: absolute; top: 8px; left: 8px; z-index: 2; width
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
-/* Log in is hidden on the public pages; the admin signs in at /admin */
-[data-track-id="onboarding_login"], header button[data-login-hidden] { display: none !important; }
-
-/* the header Log in button is hidden for visitors from first paint (the head script adds .signed-in) so the header never shifts */
-html:not(.signed-in) header button.css-ulcce1 { display: none !important; }
 /* "Log in" becomes "My account" once the session loads; reserve its width so the header does not shift */
 html.signed-in header button.css-ulcce1 { min-width: 126.5625px; }
+/* Hide onboarding while a saved session redirects to Discover. */
+html.signed-in body[data-page="welcome"] { visibility: hidden; }

@@ -1,3 +1,4 @@
+// Requires worker/.dev.vars with a disposable ImageKit key, and CHECK_VIDEO_FILE pointing to a real small MP4.
 // Needs `npm start` (127.0.0.1:5000) and a FRESH `wrangler dev` with default vars (127.0.0.1:8787):
 //   cd worker; TMP=$(mktemp -d)
 //   npx wrangler d1 migrations apply 500px-guest-uploads --local --persist-to "$TMP"
@@ -8,6 +9,7 @@ import {execSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
+assert.ok(process.env.CHECK_VIDEO_FILE,'set CHECK_VIDEO_FILE to a real small MP4 fixture');
 const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
 const origin=process.env.SITE_URL||'http://127.0.0.1:5000';
@@ -34,7 +36,7 @@ assert.equal(orientationOf(Buffer.concat([base.subarray(0,2),Buffer.from([0xFF,0
 const app1=Buffer.concat([Buffer.from([0xFF,0xE1,0,exif.length+2]),exif]);
 const jpeg=Buffer.concat([base.subarray(0,2),app1,base.subarray(2)]);
 assert.ok(jpeg.includes('GPSMARKER'));
-const mp4=Buffer.concat([Buffer.from('\0\0\0\x18ftypisom','latin1'),Buffer.alloc(2048)]);
+const mp4=await fs.readFile(process.env.CHECK_VIDEO_FILE);
 const big=Buffer.alloc(21*1024*1024);
 const files=[
   {name:'photo.jpg',mimeType:'image/jpeg',buffer:jpeg},
@@ -51,6 +53,10 @@ try {
   await context.addInitScript(user=>{try{const s=JSON.parse(localStorage['500px-local-demo']||'{}');if(!s.user){s.user=user;localStorage['500px-local-demo']=JSON.stringify(s);}}catch{}},admin);
   const page=await context.newPage();
   page.on('pageerror',error=>errors.push(error.message));
+
+  await page.goto(origin+'/',{waitUntil:'networkidle'});
+  await page.waitForURL(/\/discover\/?$/);
+  assert.equal(await page.locator('body').getAttribute('data-page'),'discover','saved sessions skip category onboarding');
 
   // upload dialog
   assert.equal((await page.goto(origin+'/upload',{waitUntil:'networkidle'})).status(),200);
@@ -109,7 +115,7 @@ try {
   assert.equal(await dialog.getByLabel('New album').isChecked(),true,'form must reset after a clean upload');
   await page.unroute(isPut);
 
-  // EXIF is stripped before the bytes reach R2
+  // EXIF is stripped before the bytes reach ImageKit
   const albums=await (await fetch(api+'/api/albums')).json();
   assert.equal(albums.filter(a=>a.title==='Check album').length,1,'second batch created a duplicate album');
   const album=albums.find(a=>a.title==='Check album');
@@ -168,7 +174,7 @@ try {
   const userResponse=await fetch(api+'/api/admin/users',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({username:author,password:'secret1'})});
   assert.equal(userResponse.status,201);
   const owner=await userResponse.json();
-  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
+  const png=await fs.readFile('assets/0410-IE9JII6Z1Ys.png');
   const post=(path,init)=>fetch(api+path,init).then(async r=>{assert.ok(r.ok,`${path} ${r.status}`);return r.json();});
   const seeded=await post('/api/albums',{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({title,ownerId:owner.id})});
   for(const [file,type,body] of [['a.png','image/png',png],['b.mp4','video/mp4',mp4]])

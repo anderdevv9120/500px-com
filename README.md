@@ -41,7 +41,7 @@ The site contains 29 captured routes, the seeded photo catalog (including Grant 
 - `catalog.json`: hard-coded photo and Quest records.
 - `app.js`, `styles.css`: browser-local interactions and responsive layout corrections.
 - `server.mjs`: dependency-free local file server.
-- `worker/`: Cloudflare Worker (R2 + D1) behind guest uploads, with its own `package.json` for `wrangler`.
+- `worker/`: Cloudflare Worker (ImageKit + D1) behind uploads, with its own `package.json` for `wrangler`.
 - `tools/`: optional capture/preparation/browser-inspection utilities. These use an external Puppeteer installation supplied through `PUPPETEER_MODULE`; running the finished site does not require it.
 
 ## Demo behavior and limits
@@ -76,15 +76,17 @@ Only the main admin can publish or manage photos/videos. Open `/admin` for uploa
 
 Migration `0004_admin.sql` creates the requested `quyenday` account with the supplied initial password (PBKDF2 hash only), protects it from rename/deletion, disables legacy admin-token authorization, adds per-photo descriptions and stores seeded-photo overrides. Apply this migration **before** deploying the new Worker. It preserves existing users, albums and files, except that older sessions for the reserved admin username are revoked. Keep the initial password private and rotate it before sharing this site publicly; the main account is managed directly in D1.
 
-The upload dialog lets the admin choose a user for a new album, or add files to any existing album. A successful photo/video batch shows a notification, including the failed count for partial uploads. Moving one uploaded photo creates an album for its new owner and preserves sibling ownership and file URLs. Each user has an **Albums & media** button linking to their profile's Galleries (albums) and Works tabs. Deleting a user checks their current media count and asks for confirmation; users with media receive a warning that deletion permanently removes all of their albums, photos and videos. Confirmed deletion removes uploaded R2 files and hides their assigned seeded photos. Renaming/resetting a regular user revokes its sessions.
+The upload dialog lets the admin choose a user for a new album, or add files to any existing album. A successful photo/video batch shows a notification, including the failed count for partial uploads. Moving one uploaded photo creates an album for its new owner and preserves sibling ownership and file URLs. Each user has an **Albums & media** button linking to their profile's Galleries (albums) and Works tabs. Deleting a user checks their current media count and asks for confirmation; users with media receive a warning that deletion permanently removes all of their albums, photos and videos. Confirmed deletion removes uploaded ImageKit files and hides their assigned seeded photos. Renaming/resetting a regular user revokes its sessions.
 
 Every photo detail, gallery caption and lightbox shows the fixed notice: **All copyrights belong to the owners of Trust Web, may not be reproduced in any way!** This notice is separate from the optional user-defined description shown in the image view modal. Descriptions default to empty; admins may edit each photo's description and posting date. Transferred seeded photos appear under the recipient's Works tab (`/p/guest?user=<username>&view=works`).
 
-The Worker stores uploads in R2 and metadata in D1. Seeded photo edits/deletions are D1 overrides; original static assets stay in the repository. Public pages use the original snapshot if the overrides API is unavailable, so those edits/deletions require a reachable Worker to be reflected. Static assets and original URLs are not access-controlled.
+The Worker streams uploads to ImageKit's Media Library under `/500px/albums/<albumId>` and stores the returned public URL and file ID in D1. Public listings and album covers use ImageKit URLs with `tr=orig-true` to preserve the already-prepared bytes, size and content type ([original-file delivery](https://imagekit.io/docs/core-delivery-features)); ImageKit handles delivery and video Range requests. Only the Worker holds `IMAGEKIT_PRIVATE_KEY`; no public key or URL endpoint setting is required. Missing credentials return 503; provider failures return a generic 502. Failed D1 inserts delete the newly uploaded file. Album/user cleanup deletes in batches of 100 and records partial progress so failed files keep their metadata for retry.
+
+Seeded photo edits/deletions remain D1 overrides; original static assets stay in the repository. Public pages use the original snapshot if the overrides API is unavailable, so those edits/deletions require a reachable Worker to be reflected. Static assets and original URLs are not access-controlled. ImageKit deletion removes the Media Library asset, but previously cached URLs can remain accessible until their CDN cache expires; this integration does not purge cached variants. See [ImageKit's delete API](https://github.com/imagekit-developer/imagekit-nodejs/blob/master/src/resources/files/files.ts).
 Limits, enforced by the Worker:
 
 - Photos (JPEG, PNG, WebP, GIF, AVIF) up to 20 MB. Videos (MP4, WebM, MOV) up to 95 MB, a **temporary** limit.
-- File types are checked by their first bytes after upload, not only by the declared type.
+- File types are checked by their first bytes before sending to ImageKit, not only by the declared type.
 - 50 uploads per visitor per hour (`UPLOADS_PER_HOUR`) and 5 GB total storage (`STORAGE_CAP_BYTES`), both Worker vars in `wrangler.toml`.
 - Album title 1–60 characters, description ≤ 280, media title ≤ 100 (defaults to the file name).
 - Creating albums and uploading need the main admin session from `POST /api/login` (`{username, password}` → `{token, username, isAdmin}`). `POST /api/signup` always returns 403. `GET /api/me` validates a session. An admin can publish into any album, credited to its owner. `POST /api/logout` ends a session. Reading albums and media stays public; `?user=<username>` filters `GET /api/albums` and `GET /api/media`.
@@ -97,7 +99,7 @@ Clicking Upload prepares the selected files in the browser before any media uplo
 
 ### Local development
 
-All pages, including localhost, default to the deployed Worker and remote D1/R2 storage. Local uploads and admin changes affect production data. An explicit `localStorage.uploadApi` override still takes precedence; clear an old override with `delete localStorage.uploadApi` and reload to restore the remote default. To opt into local storage, set `localStorage.uploadApi = 'http://127.0.0.1:8787'` and run the local Worker next to `npm start`:
+All pages, including localhost, default to the deployed Worker, remote D1, and ImageKit storage. Local uploads and admin changes affect production data. An explicit `localStorage.uploadApi` override still takes precedence; clear an old override with `delete localStorage.uploadApi` and reload to restore the remote default. For a local Worker and D1, set `localStorage.uploadApi = 'http://127.0.0.1:8787'`, copy `worker/.dev.vars.example` to the ignored `worker/.dev.vars`, and set an ImageKit private key with media read/write access. Use a disposable ImageKit account for checks; local Workers still upload real files to ImageKit. Run next to `npm start`:
 
 ```sh
 cd worker && npm install && npm run migrate:local && npm run dev
@@ -105,10 +107,10 @@ cd worker && npm install && npm run migrate:local && npm run dev
 
 ### Checks
 
-Both checks need a **fresh** local state, so point `--persist-to` at an empty temp directory. `WRANGLER_DISABLE_REQUEST_BODY_DRAINING=1` stops `wrangler dev` from holding the early 413 response until the body is drained. The exact commands are in each file's header.
+API/browser checks need a **fresh** local D1 state and a disposable ImageKit key in `worker/.dev.vars`, so point `--persist-to` at an empty temp directory. `WRANGLER_DISABLE_REQUEST_BODY_DRAINING=1` stops `wrangler dev` from holding the early 413 response until the body is drained. The exact commands are in each file's header. Unit fixtures mock ImageKit and never upload real files.
 
 - `tools/upload-api-check.mjs` checks the Worker API: accounts, sessions, album ownership, albums, uploads, type sniffing, Range requests, rate limit, storage cap, CORS, and admin deletes. Start `wrangler dev` with `--var UPLOADS_PER_HOUR:6 --var STORAGE_CAP_BYTES:60000`, then run it with `CHECK_UPLOADS_PER_HOUR=6 CHECK_STORAGE_CAP=60000`. `API_URL` defaults to `http://127.0.0.1:8787`; `ADMIN_USERNAME`/`ADMIN_PASSWORD` default to the account seeded by migration 0004.
-- `tools/uploads-check.mjs` checks the browser flow: the upload dialog, EXIF stripping, the guest profile, albums, the lightbox, and the exported site. It needs `npm start` and `wrangler dev` with default vars, plus `PLAYWRIGHT_MODULE` pointing at an external `playwright-core/index.mjs`. `SITE_URL` and `API_URL` are optional.
+- `tools/uploads-check.mjs` checks the browser flow: the upload dialog, EXIF stripping, the guest profile, albums, the lightbox, and the exported site. It needs `npm start` and `wrangler dev` with default vars, plus `PLAYWRIGHT_MODULE` pointing at an external `playwright-core/index.mjs` and `CHECK_VIDEO_FILE` pointing at a real small MP4 (ImageKit validates media, so synthetic headers are insufficient). `SITE_URL` and `API_URL` are optional.
 - `tools/image-upload-check.mjs` checks WebP conversion, size savings, transparency, orientation, metadata removal, unsupported encoders, failed conversions, and unchanged media. It needs `npm start` and `PLAYWRIGHT_MODULE`, and intercepts API requests so nothing is uploaded to a Worker.
 - `node tools/upload-api-check.mjs --smoke` is safe to run against production. It logs in as the main admin, creates an album, uploads a PNG, lists albums, makes a Range request, then deletes the album. It requires `API_URL` and `ADMIN_PASSWORD`; `ADMIN_USERNAME` defaults to the main account.
 
@@ -118,8 +120,8 @@ From `worker/`, signed in to the Cloudflare account:
 
 ```sh
 npx wrangler login
-npx wrangler r2 bucket create 500px-guest-media
 npx wrangler d1 create 500px-guest-uploads    # paste database_id into wrangler.toml
+npx wrangler secret put IMAGEKIT_PRIVATE_KEY # paste private key at the hidden prompt
 npm run migrate:remote
 npm run deploy                                # prints the *.workers.dev URL
 ```
@@ -131,6 +133,12 @@ API_URL=https://<worker>.workers.dev ADMIN_PASSWORD=<password> node tools/upload
 ```
 
 Later Worker changes only need `npm run deploy`. Schema changes also need `npm run migrate:remote`.
+
+### Switching existing R2 uploads to ImageKit
+
+Migration `0005_imagekit.sql` **deletes existing uploaded-media and album rows**, renames `r2_key` to `imagekit_file_id`, and adds the ImageKit URL column. Accounts, sessions and seeded-photo overrides remain intact. R2 objects remain in `500px-guest-media`; no files are copied or deleted. Re-upload media after switching. Existing uploaded-album share links stop resolving. Static catalog images remain local.
+
+Set `IMAGEKIT_PRIVATE_KEY` with `npx wrangler secret put IMAGEKIT_PRIVATE_KEY`, then apply migrations and deploy the Worker together during a maintenance window: the old Worker cannot use the new schema. The R2 binding is removed from `wrangler.toml`; manually retiring the old bucket is a separate action. See [ImageKit API key permissions](https://imagekit.io/docs/api-keys).
 
 Migration `0002_users.sql` adds accounts and **drops all existing guest albums and media rows**. Their R2 objects stay in `500px-guest-media`; empty the bucket in the Cloudflare dashboard if you want the space back. Run `npm run migrate:remote` before deploying the account-aware Worker.
 
@@ -145,7 +153,7 @@ All `/api/admin/*` endpoints require the main admin's Bearer session. The old `A
 - `PUT/DELETE /api/admin/media/:id`: uploaded-media metadata, ownership and deletion.
 - `PUT/DELETE /api/admin/seeded/:photoId`: metadata/ownership overrides and hiding seeded photos.
 - Photo updates accept `{title, description, createdAt, ownerId}`; `createdAt` is an integer Unix timestamp in milliseconds. Seeded photos may keep their original credit with `ownerId: null`.
-- `GET /api/photo-overrides` is public. Existing `DELETE /api/media/:id` and `DELETE /api/albums/:id` now require the main admin session, and remove R2 files with their rows.
+- `GET /api/photo-overrides` is public. Existing `DELETE /api/media/:id` and `DELETE /api/albums/:id` now require the main admin session, and remove ImageKit files with their rows.
 
 `worker/test/admin.test.js` covers the real migrations, admin login, blocked registration, regular-user denials, protected admin, user CRUD, date/owner validation, single-photo transfer, sibling preservation and seeded overrides using in-memory SQLite (Node.js 22.13+). Run it with `npm test` from `worker/`. Browser fixtures use the main admin and can override `ADMIN_USERNAME`/`ADMIN_PASSWORD`; they must point at a disposable local Worker.
 

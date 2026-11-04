@@ -2,14 +2,10 @@ name = "500px-guest-uploads"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
-[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "500px-guest-media"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "500px-guest-uploads"
-database_id = "97c0b2f3-07c7-42af-833c-545e220d0b9e"
+database_id = "ac1fd553-f2b3-4668-8d74-23fce9006e42"
 migrations_dir = "migrations"
 
 [vars]
