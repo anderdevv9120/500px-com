@@ -1,6 +1,7 @@
 /* The per-page styles preserve the reference. These rules support local interactions. */
 [hidden] { display: none !important; }
 a[href="/signup"], button[aria-label="Sign up"] { display: none !important; }
+header button.css-ulcce1:not([data-menu-wired]) { display: none; }
 .photo-copyright, .photo-description { max-width: 700px; margin: 0 0 16px; color: #bbb; font: 400 14px/1.7 Poppins,sans-serif; overflow-wrap: anywhere; }
 .lightbox-caption span { min-width: 0; max-width: 700px; text-align: center; overflow-wrap: anywhere; }
 .lightbox-caption p { margin: 0 0 8px; }

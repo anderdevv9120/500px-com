@@ -10,7 +10,7 @@ Run `npm start`, then open http://localhost:5000. For fresh onboarding, clear th
 - [ ] Header, search type, Slideshow, and photo action menus fade/grow on opening and closing; exiting menus cannot receive clicks or keyboard focus.
 - [ ] Header Arrow Down opens and focuses the menu; arrows navigate, Escape restores trigger focus, and outside click dismisses it. Touch navigation still opens on tap.
 - [ ] Blog header dropdowns open on hover or click and animate both ways; mobile Blog navigation and Licensing Table of Contents animate on toggle. Reduced motion removes the animation.
-- [ ] Blog listing, articles, and categories retain the normal black site header, search, login, and desktop/mobile navigation above the light Blog content.
+- [ ] Blog listing, articles, and categories retain the normal black site header, search, and desktop/mobile navigation above the light Blog content. Header login is hidden; `/login` opens the login dialog.
 - [ ] A photo opens a detail page with matching photography and a photographer panel.
 - [ ] Grid-size controls resize photos without overlap; browser resizing keeps the feed within the viewport.
 - [ ] Slideshow opens a photo viewer; arrows change photos; Escape closes it.

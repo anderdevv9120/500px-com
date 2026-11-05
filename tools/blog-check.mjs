@@ -20,7 +20,7 @@ try {
   };
   await visit('/blog');
   assert.equal(await page.locator('.blog-site-header').evaluate(header=>getComputedStyle(header).backgroundColor),'rgb(0, 0, 0)','Blog keeps the normal black site header');
-  assert.equal(await page.getByRole('button',{name:'Log in',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'Log in',exact:true}).count(),0,'Header login is hidden');
   assert.equal(await page.locator('.blog-hero h1').count(),1,'Blog has the referenced photo feature');
   assert.equal(await page.locator('.blog-top-posts > article').count(),5);
   assert.equal(await page.locator('.blog-latest-grid > article').count(),11);
@@ -76,7 +76,7 @@ try {
   if(mobile){
    for(const width of [320,768]){await page.setViewportSize({width,height:900});await geometry('/blog');await visit(links[0]);await geometry(links[0]);await visit('/blog');}
   }
-  await page.getByRole('button',{name:'Log in',exact:true}).click();
+  await visit('/login');
   await page.waitForSelector('dialog[open] input[name="account"]');
   await page.keyboard.press('Escape');
   await context.close();

@@ -91,7 +91,7 @@ Limits, enforced by the Worker:
 - Album title 1–60 characters, description ≤ 280, media title ≤ 100 (defaults to the file name).
 - Creating albums and uploading need the main admin session from `POST /api/login` (`{username, password}` → `{token, username, isAdmin}`). `POST /api/signup` always returns 403. `GET /api/me` validates a session. An admin can publish into any album, credited to its owner. `POST /api/logout` ends a session. Reading albums and media stays public; `?user=<username>` filters `GET /api/albums` and `GET /api/media`.
 - There is no login throttling yet.
-- CORS is limited to `ALLOWED_ORIGINS` (GitHub Pages plus localhost:5000).
+- CORS is limited to `ALLOWED_ORIGINS` (`https://trustweb.beauty`, GitHub Pages, and localhost:5000). Redeploy the Worker after changing this list.
 
 Clicking Upload prepares the selected files in the browser before any media upload starts. JPEG and PNG photos are converted to WebP at 90% quality while keeping their dimensions, orientation, and transparency. The list shows “Converting…” during conversion, then updates the filename and size before uploading. Upload stays disabled throughout preparation and upload. If WebP is not smaller, or the browser cannot encode WebP, the original format is kept and the status says “Uploading original…”. GIF, AVIF, existing WebP, and videos pass through unchanged. The 20 MB photo limit applies to the selected file before conversion.
 

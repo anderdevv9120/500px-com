@@ -32,7 +32,7 @@ try{
   await page.goto('http://localhost:5000/',{waitUntil:'networkidle0'});
   await page.click('.photo-container[role="button"]');
   assert.match(await page.$eval('h1',e=>e.textContent),/1\/4/);
-  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Log in').click());
+  await page.goto('http://localhost:5000/login',{waitUntil:'networkidle0'});
   await page.waitForSelector('dialog[open] input[name="account"]');
   await page.screenshot({path:'screenshots/login-desktop.jpg',type:'jpeg',quality:80,waitForFonts:false});
   await page.type('dialog input[name="account"]','demo');

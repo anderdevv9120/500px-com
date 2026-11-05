@@ -9,6 +9,6 @@ database_id = "ac1fd553-f2b3-4668-8d74-23fce9006e42"
 migrations_dir = "migrations"
 
 [vars]
-ALLOWED_ORIGINS = "https://anderdevv9120.github.io,http://localhost:5000,http://127.0.0.1:5000"
+ALLOWED_ORIGINS = "https://trustweb.beauty,https://anderdevv9120.github.io,http://localhost:5000,http://127.0.0.1:5000"
 STORAGE_CAP_BYTES = "5368709120"
 UPLOADS_PER_HOUR = "50"
